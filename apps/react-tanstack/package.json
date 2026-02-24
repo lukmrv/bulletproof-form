@@ -1,0 +1,9 @@
+{
+  "name": "@bulletproof-forms/react-tanstack",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"react-tanstack app scaffold pending\"",
+    "test": "echo \"react-tanstack tests pending\""
+  }
+}

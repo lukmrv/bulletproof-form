@@ -1,0 +1,17 @@
+{
+  "name": "bulletproof-forms",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Reference implementation for robust, layered form architecture.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run dev",
+    "build:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run build",
+    "typecheck:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run typecheck",
+    "lint:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run lint",
+    "format:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run format",
+    "format:check:react-rhf": "npm --workspace @bulletproof-forms/react-rhf run format:check"
+  }
+}

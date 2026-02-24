@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Layered Form Builder'
+  short_description: 'Enforce layered form architecture'
+  default_prompt: 'Use $layered-form-builder to enforce intrinsic field contracts, form-level cross-field validation and policy composition, centralized defaults context, and deterministic payload include/omit mapping aligned with backend contract expectations.'

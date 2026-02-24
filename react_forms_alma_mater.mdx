@@ -1,0 +1,456 @@
+---
+title: "React Forms Alma Mater: Building Forms That Survive Production"
+description: "A practical architecture for successful form creation: field contracts, reactivity strategy, validation timing, dependency handling, and payload mapping."
+author: "Luke"
+date: "2026-02-18"
+---
+
+"we can re-use fields no only between forms. We can reuse them between different form handling libraries no problem"
+
+# React Forms Alma Mater: Building Forms That Survive Production
+
+Most React form pain is caused by either accidental architecture or just straight up missing architecture.
+
+A successful form system needs five explicit pillars:
+
+1. Default values
+2. Validation
+3. Payload mapping
+4. Dependency handling
+5. Reactivity strategy
+
+## Why React Forms Become Hard
+
+Forms are a special state domain:
+
+- Hot path: state updates on every keystroke.
+- Cross-cutting: one field can affect many others.
+- Session-aware: validation strictness changes over time.
+- Bidirectional mapping: UI value shape is often not API shape.
+
+So the core question is not "which library?". The core question is:
+
+> What is your form contract, and what reactivity model executes it without over-rendering?
+
+## The Field Contract
+
+A scalable form starts with field modules, not form pages.
+
+Keep each field mostly dumb in UI, and move behavior into a compact factory-style object:
+
+```tsx
+import { z } from 'zod'
+
+export const FirstNameField = {
+  Field: ({ value, onChange, onBlur, error, inputRef }) => (
+    <TextInput
+      label="First name"
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      error={error}
+      ref={inputRef}
+    />
+  ),
+
+  defaultDataFactory: ({ user }) => user?.firstName ?? '',
+
+  validationSchemaFactory: ({ isRequired }) =>
+    isRequired ? z.string().min(1, 'First name is required') : z.string().optional(),
+
+  requestValueFactory: ({ value }) => ({
+    first_name: value.trim(),
+  }),
+
+  isVisible: ({ mode }) => mode !== 'invite-only',
+}
+```
+
+This mirrors your original model and stays focused on behavior, not heavy typing.
+
+## Form Assembly
+
+At form level, compose each concern explicitly. Avoid generic loops when fields need different input data.
+
+```ts
+import { z } from 'zod'
+import { FirstNameField, SecondNameField, CountryField, StateField } from './fields'
+
+export function buildDefaults(ctx) {
+  return {
+    firstName: FirstNameField.defaultDataFactory({
+      user: ctx.user,
+      mode: ctx.mode,
+    }),
+    secondName: SecondNameField.defaultDataFactory({
+      user: ctx.user,
+      locale: ctx.locale,
+    }),
+    country: CountryField.defaultDataFactory({
+      geo: ctx.geo,
+    }),
+    state: StateField.defaultDataFactory({
+      country: ctx.geo?.country,
+      user: ctx.user,
+    }),
+    postalCode: '',
+  }
+}
+
+export function buildValidationSchema(ctx) {
+  return z.object({
+    firstName: FirstNameField.validationSchemaFactory({
+      isRequired: true,
+    }),
+    secondName: SecondNameField.validationSchemaFactory({
+      mode: ctx.mode,
+    }),
+    country: CountryField.validationSchemaFactory({}),
+    state: StateField.validationSchemaFactory({
+      values: ctx.values,
+      mode: ctx.mode,
+    }),
+    postalCode: z.string().min(1, 'Postal code is required'),
+  })
+}
+
+export function buildPayload(values, ctx) {
+  return {
+    ...FirstNameField.requestValueFactory({
+      value: values.firstName,
+      userId: ctx.userId,
+    }),
+    ...SecondNameField.requestValueFactory({
+      value: values.secondName,
+    }),
+    ...CountryField.requestValueFactory({
+      value: values.country,
+    }),
+    ...StateField.requestValueFactory({
+      value: values.state,
+      values,
+      mode: ctx.mode,
+    }),
+    postal_code: values.postalCode,
+  }
+}
+```
+
+This keeps each field free to accept different dependencies for defaults, validation, and payload transformation.
+
+## The Missing Pillar: Reactivity Strategy (Controlled)
+
+For this architecture, treat the form as controlled only:
+
+- Every input gets `value` from form state.
+- Every input writes through `onChange`.
+- Defaults are applied up front and kept in the same state graph.
+
+The risk in plain React is rerender breadth: if one field listens to another field value directly in the main form component, every keystroke can pull the whole tree through render.
+
+To mitigate that, use componentization with narrow subscriptions:
+
+1. Keep leaf fields dumb and memoized.
+2. Move cross-field listeners into dedicated components that receive only the values they need.
+3. If you only need to update another field (no extra UI read), run that side effect directly in the changed field's `onChange`.
+
+That gives you controlled predictability without letting one reactive dependency fan out to full-form rerenders.
+
+## Validation Is Time-Dependent, Not Static
+
+Validation should evolve during a session:
+
+- Before interaction: mostly quiet.
+- After blur: field-level feedback.
+- After first submit: stricter, global feedback.
+- During correction: fast revalidation on changed fields.
+
+A practical policy table:
+
+| Session phase | Trigger | Behavior |
+| --- | --- | --- |
+| Pristine | submit | validate all visible required fields |
+| Touched | blur | validate field-level constraints |
+| Submitted once | change + blur | validate changed field immediately, dependent fields selectively |
+| Submitting | async response | map server errors to fields + form root |
+
+This avoids both silent failure and aggressive early error noise.
+
+## Dependent Fields and Visibility Semantics
+
+Dynamic forms fail when visibility policy is undefined.
+
+For each conditional field, define the policy explicitly:
+
+- Hidden + retain value?
+- Hidden + clear value?
+- Hidden + skip validation?
+- Hidden + include in payload?
+
+Recommended default policy:
+
+- If hidden by dependency rule, skip validation.
+- Exclude from payload by default.
+- Retain local draft value in client state unless privacy/security requires purge.
+
+Document exceptions. Do not rely on accidental behavior.
+
+## Payload Mapping Should Be First-Class
+
+Never submit raw UI values directly unless your API contract is identical.
+
+Keep `toPayload` or `requestValueFactory` explicit because it handles:
+
+- Key renaming (`firstName` -> `first_name`)
+- Type coercion (`"42"` -> `42`)
+- Nullability normalization (`""` -> `null`)
+- Conditional omission (skip hidden or untouched optional fields)
+
+This makes API drift manageable and testable.
+
+## Async and Concurrency Rules
+
+Production forms must define behavior for async edges:
+
+- Async default data loading
+- Async validation (username uniqueness, etc.)
+- Submit cancellation on route change
+- Last-write-wins race handling
+
+Baseline safeguards:
+
+- Debounce async field validation.
+- Cancel stale requests on new input.
+- Track request IDs or use `AbortController`.
+- Never overwrite newer value with older async response.
+
+## Accessibility Is a Hard Requirement
+
+A form can be "functionally correct" and still fail users.
+
+Minimum non-negotiables:
+
+- Every input has an associated label.
+- Error text is programmatically connected (`aria-describedby`).
+- Submit errors expose an error summary and move focus appropriately.
+- Instructions are available before users commit.
+
+This is not polish; it is core correctness.
+
+## A Reference Controlled Pattern
+
+```tsx
+import * as React from 'react'
+import { z } from 'zod'
+import { FirstNameInput, CountryInput, StateInput, PostalCodeInput } from './ui'
+
+const baseSchema = z.object({
+  firstName: z.string().min(1, 'First name is required'),
+  country: z.string().min(1, 'Country is required'),
+  state: z.string().optional(),
+  postalCode: z.string().min(1, 'Postal code is required'),
+})
+
+export function ProfileForm({ user, geo }) {
+  const [values, setValues] = React.useState(() =>
+    buildDefaults({ user, geo, mode: 'create' }),
+  )
+  const [errors, setErrors] = React.useState({})
+  const [hasSubmitted, setHasSubmitted] = React.useState(false)
+
+  const validate = React.useCallback((nextValues) => {
+    const schema = baseSchema.superRefine((data, ctx) => {
+      if (data.country === 'US' && !data.state) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['state'],
+          message: 'State is required for US addresses',
+        })
+      }
+    })
+
+    const result = schema.safeParse(nextValues)
+    if (result.success) {
+      setErrors({})
+      return true
+    }
+
+    const nextErrors = {}
+    for (const issue of result.error.issues) {
+      const key = issue.path[0]
+      if (!nextErrors[key]) nextErrors[key] = issue.message
+    }
+    setErrors(nextErrors)
+    return false
+  }, [])
+
+  const setFieldValue = React.useCallback((name, value) => {
+    setValues((prev) => {
+      const next = { ...prev, [name]: value }
+      if (hasSubmitted) validate(next)
+      return next
+    })
+  }, [hasSubmitted, validate])
+
+  const onCountryChange = React.useCallback((country) => {
+    // Side effect in onChange: no extra listener component needed for this derivation
+    setValues((prev) => {
+      const next = {
+        ...prev,
+        country,
+        state: country === 'US' ? prev.state : '',
+      }
+      if (hasSubmitted) validate(next)
+      return next
+    })
+  }, [hasSubmitted, validate])
+
+  function onSubmit(e) {
+    e.preventDefault()
+    setHasSubmitted(true)
+
+    if (!validate(values)) return
+
+    const payload = buildPayload(values, {
+      userId: user.id,
+      mode: 'create',
+    })
+
+    console.log('submit payload', payload)
+  }
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      <MemoFirstNameField
+        value={values.firstName}
+        error={errors.firstName}
+        setFieldValue={setFieldValue}
+      />
+
+      <CountryInput
+        value={values.country}
+        error={errors.country}
+        onChange={onCountryChange}
+      />
+
+      <StateFieldController
+        country={values.country}
+        state={values.state}
+        error={errors.state}
+        setFieldValue={setFieldValue}
+      />
+
+      <MemoPostalCodeField
+        value={values.postalCode}
+        error={errors.postalCode}
+        setFieldValue={setFieldValue}
+      />
+
+      <button type="submit">Save</button>
+    </form>
+  )
+}
+
+const MemoFirstNameField = React.memo(function MemoFirstNameField({
+  value,
+  error,
+  setFieldValue,
+}) {
+  return (
+    <FirstNameInput
+      value={value}
+      error={error}
+      onChange={(next) => setFieldValue('firstName', next)}
+    />
+  )
+})
+
+const MemoPostalCodeField = React.memo(function MemoPostalCodeField({
+  value,
+  error,
+  setFieldValue,
+}) {
+  return (
+    <PostalCodeInput
+      value={value}
+      error={error}
+      onChange={(next) => setFieldValue('postalCode', next)}
+    />
+  )
+})
+
+const StateFieldController = React.memo(function StateFieldController({
+  country,
+  state,
+  error,
+  setFieldValue,
+}) {
+  if (country !== 'US') return null
+
+  return (
+    <StateInput
+      value={state}
+      error={error}
+      onChange={(next) => setFieldValue('state', next)}
+    />
+  )
+})
+```
+
+In this pattern:
+
+- The form stays controlled.
+- Cross-field listening (`state` depends on `country`) lives in `StateFieldController`.
+- Pure propagation side effects (`country` clears `state`) happen inside the country `onChange`.
+- Unrelated fields are split into memoized components so a single value change does not force expensive rerenders everywhere.
+
+## Controlled-Only, Without Performance Collapse
+
+You do not need to switch paradigms to make this work.
+
+If you keep controlled state and add:
+
+- explicit field factories
+- explicit form assembly
+- listener componentization
+- onChange side effects for pure derivations
+
+you can build very dynamic forms while keeping behavior understandable.
+
+## Practical Checklist
+
+Before shipping any serious form, confirm:
+
+- Field contracts exist and are reusable.
+- Defaults, schema, visibility, and payload logic are all explicit.
+- Validation timing policy is documented.
+- Hidden-field semantics are documented.
+- Server error mapping is implemented.
+- Submission is idempotent and race-safe.
+- Accessibility baseline passes keyboard and screen reader checks.
+- Rerender behavior on keystroke is measured in React DevTools.
+
+If you can check every box, your form architecture will survive real product growth.
+
+## References
+
+- [React docs: input and controlled patterns](https://react.dev/reference/react-dom/components/input)
+- [React docs: form element and actions](https://react.dev/reference/react-dom/components/form)
+- [React docs: sharing state between components](https://react.dev/learn/sharing-state-between-components)
+- [TanStack Form docs: reactivity](https://tanstack.com/form/v1/docs/framework/react/guides/reactivity)
+- [TanStack Form docs: dynamic validation](https://tanstack.com/form/v1/docs/framework/react/guides/dynamic-validation)
+- [TanStack Form docs: linked fields](https://tanstack.com/form/v1/docs/framework/react/guides/linked-fields)
+- [TanStack Form docs: listeners](https://tanstack.com/form/latest/docs/framework/react/guides/listeners)
+- [TanStack blog: announcing Form v1 (March 3, 2025)](https://tanstack.com/blog/announcing-tanstack-form-v1)
+- [React Hook Form repository](https://github.com/react-hook-form/react-hook-form)
+- [Final Form](https://final-form.org/)
+- [GOV.UK Design System: validation pattern](https://design-system.service.gov.uk/patterns/validation/)
+- [GOV.UK Design System: error summary component](https://design-system.service.gov.uk/components/error-summary/)
+- [W3C WAI: labeling controls](https://www.w3.org/WAI/tutorials/forms/labels/)
+- [W3C WAI: form instructions](https://www.w3.org/WAI/tutorials/forms/instructions/)
+- [WCAG 2.1 input assistance](https://www.w3.org/WAI/WCAG21/Understanding/input-assistance)
+- [Baymard Institute: inline validation UX findings](https://baymard.com/blog/inline-form-validation)
+
+## Notes on the Tanner Linsley Quote
+
+The quote included in this article reflects text attributed to [@tannerlinsley](https://x.com/tannerlinsley) about form-state reactivity tradeoffs. In this environment I could not reliably retrieve the canonical original X post URL, so the ideas are cited conceptually and cross-referenced with official React and TanStack documentation above.
