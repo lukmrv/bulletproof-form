@@ -1,11 +1,14 @@
 import { memo } from 'react'
-import type { ControlledFieldProps } from './shared/types'
+import type { ControlledFieldProps } from './types'
 
-export const NewsletterField = memo(({
+export const CheckboxField = memo(({
   value,
   onChange,
   onBlur,
   inputRef,
+  label,
+  required,
+  disabled,
 }: ControlledFieldProps<boolean, HTMLInputElement>) => {
   return (
     <label className='checkbox-row'>
@@ -15,8 +18,10 @@ export const NewsletterField = memo(({
         onChange={(event) => onChange(event.target.checked)}
         onBlur={onBlur}
         ref={inputRef}
+        required={required}
+        disabled={disabled}
       />
-      Receive newsletter
+      {label}
     </label>
   )
 })

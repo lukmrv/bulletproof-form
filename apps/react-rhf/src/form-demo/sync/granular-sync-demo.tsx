@@ -1,32 +1,82 @@
 import { useEffect, useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller, useForm } from 'react-hook-form'
-import { CheckboxField } from '../components/checkbox-field'
-import { SelectField } from '../components/select-field'
-import { TextField } from '../components/text-field'
-import { ACCOUNT_TYPE_OPTIONS } from './field-contracts/account-type'
-import { COUNTRY_OPTIONS } from './field-contracts/country'
-import { PREFERRED_CONTACT_OPTIONS } from './field-contracts/preferred-contact'
-import { ONBOARDING_FIELD_CONTENT } from './field-content'
-import { defaultValuesFactory } from './factories/default-values-factory'
-import { payloadFactory } from './factories/payload-factory'
-import { submitErrorFactory } from './factories/submit-error-factory'
-import { validationFactory } from './factories/validation-factory'
-import { OnboardingFormOrchestrator, type OnboardingFormRenderContract } from './orchestration'
-import { buildConditionalFieldPolicy, FIELD_POLICIES } from './policies'
-import { applySubmitErrors } from './shared/apply-submit-response'
-import { ValueObserver } from './shared/value-observer'
+import { CheckboxField } from '../../components/checkbox-field'
+import { SelectField } from '../../components/select-field'
+import { TextField } from '../../components/text-field'
+import { ACCOUNT_TYPE_OPTIONS } from '../field-contracts/account-type'
+import { COUNTRY_OPTIONS } from '../field-contracts/country'
+import { PREFERRED_CONTACT_OPTIONS } from '../field-contracts/preferred-contact'
+import { ONBOARDING_FIELD_CONTENT } from '../field-content'
+import { defaultValuesFactory } from '../factories/default-values-factory'
+import { payloadFactory } from '../factories/payload-factory'
+import { submitErrorFactory } from '../factories/submit-error-factory'
+import { validationFactory } from '../factories/validation-factory'
+import { OnboardingFormOrchestrator, type OnboardingFormRenderContract } from '../orchestration'
+import { buildConditionalFieldPolicy, FIELD_POLICIES } from '../policies'
+import { applySubmitErrors } from '../shared/apply-submit-response'
+import { ValueObserver } from '../shared/value-observer'
+import {
+  draftAutosaveAdapter,
+  type OnboardingSyncAdapter,
+  serverPatchAdapter,
+} from './sync-adapters'
+import { SyncStatusPanel } from './sync-status-panel'
+import { useOnboardingGranularSync } from './use-onboarding-granular-sync'
 
-export function SimpleOnboardingFormRHF() {
-  return <OnboardingFormOrchestrator renderer={SimpleOnboardingFormRenderer} />
+export function DraftAutosaveOnboardingFormRHF() {
+  return (
+    <OnboardingFormOrchestrator
+      renderer={DraftAutosaveOnboardingFormRenderer}
+    />
+  )
 }
 
-function SimpleOnboardingFormRenderer({
+function DraftAutosaveOnboardingFormRenderer(form: OnboardingFormRenderContract) {
+  return (
+    <GranularSyncOnboardingFormRenderer
+      {...form}
+      adapter={draftAutosaveAdapter}
+      heading='Draft autosave'
+      summary='Changed dirty fields are debounced and saved to a mock draft snapshot.'
+    />
+  )
+}
+
+export function ServerPatchOnboardingFormRHF() {
+  return (
+    <OnboardingFormOrchestrator
+      renderer={ServerPatchOnboardingFormRenderer}
+    />
+  )
+}
+
+function ServerPatchOnboardingFormRenderer(form: OnboardingFormRenderContract) {
+  return (
+    <GranularSyncOnboardingFormRenderer
+      {...form}
+      adapter={serverPatchAdapter}
+      heading='Server patch'
+      summary='Changed dirty fields are debounced into mock PATCH requests with per-field status.'
+    />
+  )
+}
+
+interface GranularSyncOnboardingFormRendererProps extends OnboardingFormRenderContract {
+  adapter: OnboardingSyncAdapter
+  heading: string
+  summary: string
+}
+
+function GranularSyncOnboardingFormRenderer({
+  adapter,
   bootstrapError,
   formContext,
+  heading,
   isHydrating,
+  summary,
   submitMutation,
-}: OnboardingFormRenderContract) {
+}: GranularSyncOnboardingFormRendererProps) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const { profile, settings } = formContext
   const validationSchema = useMemo(() => validationFactory({ settings, profile }), [
@@ -66,15 +116,29 @@ function SimpleOnboardingFormRenderer({
     applySubmitErrors(submitErrorFactory(response), { setError, setSubmitError })
   }, console.warn)
 
+  const syncState = useOnboardingGranularSync({
+    adapter,
+    debounceMs: 500,
+    formMethods,
+    profile,
+    settings,
+  })
+
   return (
     <main className='page'>
       <section className='panel'>
         <header className='panel-header'>
           <div>
-            <h1>Baseline form</h1>
-            <p>Single-page RHF form with layered fields, policies, validation, and payload.</p>
+            <h1>{heading}</h1>
+            <p>{summary}</p>
           </div>
         </header>
+
+        <SyncStatusPanel
+          statuses={syncState.statuses}
+          lastMessage={syncState.lastMessage}
+          onRetryFailed={syncState.retryFailed}
+        />
 
         <form onSubmit={onFormSubmit} noValidate aria-busy={isHydrating || isSubmitting}>
           <fieldset className='form-fieldset' disabled={isHydrating || isSubmitting}>
@@ -288,11 +352,7 @@ function SimpleOnboardingFormRenderer({
             />
 
             <div className='actions'>
-              <button
-                type='submit'
-                className={isHydrating || isSubmitting ? 'loading-indicator' : ''}
-                disabled={isHydrating || isSubmitting}
-              >
+              <button type='submit' disabled={isHydrating || isSubmitting}>
                 Submit
               </button>
             </div>

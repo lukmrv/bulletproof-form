@@ -4,7 +4,6 @@ import type { StaticValidationFieldContract } from './shared/contract'
 import { isString } from './shared/guards'
 
 const USERNAME_REGEX = /^[a-z0-9-]{3,20}$/
-const USERNAME_SYNC_SCHEMA = z.string().trim().regex(USERNAME_REGEX)
 
 export const UsernameField = {
   validationSchema: z
