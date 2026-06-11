@@ -17,7 +17,7 @@ The approach is guided by four design goals:
 
 Explicit over implicit - defaults, validation, dependencies, and payload shape are declared, never inferred from render order or accidental behavior.
 Single ownership - every concern has exactly one home, so a change has one obvious place to land.
-Library-agnostic core - fields and contracts carry no dependency on the form runtime; the runtime is an implementation detail, swappable without touching the contract.
+Library-agnostic core - fields and contracts carry no dependency on the form runtime (the forms-handling library); the runtime is an implementation detail, swappable without touching the contract. Agnosticism is scoped to the form runtime: the validation library (zod) is a deliberate, declared dependency of the contract layer, not an implementation detail.
 Testable in isolation - each concern is a pure function or a dumb component, unit-testable without mocking the whole module.
 The Five Pillars
 Practically every form in every domain is composed from the same five concerns. Four define the contract - what is true about the form. One defines execution - how it runs.
@@ -34,7 +34,7 @@ Value acceptability is independent of where the value came from or where it's go
 
 
 Payload mapping - how does form state become the API contract?
-The payload type is derived from the payload factory rather than hand-maintained, giving a single source of truth and keeping every payload consumer type-checked against the form.
+The payload factory is the single place where form state becomes the request shape, and it is type-checked against the backend-provided request type - payload correctness is enforced by the API contract, not maintained by hand.
 
 Dependency handling - how do fields and runtime context reshape the form at runtime? eg.: visibility, cross-field derivation, include / omit decisions.
 It's the only concern about relationships between fields - centralizing it is what keeps conditional logic out of the other three.
@@ -125,7 +125,7 @@ interface FieldContractBase<TName extends string, TValue, TContext> {
   name: TName
   normalizeValue: (value: unknown) => TValue
   defaultDataFactory: (context: TContext) => TValue
-  validationSchemaFactory: (context?: unknown) => ZodType<TValue>
+  validationSchemaFactory: (context: TContext) => ZodType<TValue>
   presentationFactory: (context: TContext) => FieldContent
 }
 
@@ -136,7 +136,7 @@ interface FieldContractBase<TName extends string, TValue, TContext> {
 // field-contracts/username.ts - static presentation
 export const UsernameField = {
   name: "user_name",
-  validationSchemaFactory: (regexp) => z.string().trim().min(1, 'Username is required').regex(regexp, …),
+  validationSchemaFactory: ({ usernameRegexp }) => z.string().trim().min(1, 'errors.username.required').regex(usernameRegexp, 'errors.username.invalid'),
   normalizeValue: (value: unknown) => isString(value) ? normalizeString(value) : '',
   defaultDataFactory: ({ profile }) => isString(profile.username) ? normalizeString(profile.username) : '',
   presentationFactory: ({ __, storeConfig }): FieldContent => ({
@@ -151,6 +151,8 @@ export const UsernameField = {
 Note what is absent: no JSX, no visibility rule, no payload key.
 As of the field names - they are form-specific by convention, so here they are co-located.
 
+Validation messages are i18n keys, not user-facing strings ('errors.username.required', not 'Username is required'). The contract stays free of the i18n runtime; the renderer translates at the display boundary - error={error?.message && __(error.message)}. Parameterized messages (e.g. minimum lengths) carry a key plus params, resolved at the same boundary.
+
 
 
 Factories - contracts become form-wide concerns
@@ -158,13 +160,14 @@ Factories - contracts become form-wide concerns
 Each factory walks the contracts and assembles one pillar for the whole form, passing each contract only the context slice it needs:
 
 Defaults:  defaultValuesFactory(context) calls every defaultDataFactory → the form's defaultValues.
-Validation:  validationFactory(ctx) builds a z.object from each contract's validationSchemaFactory, then a superRefine handles conditional fields - gating on policy.visible and running the full field schema for each one. Cross-field rules that are not policy-driven also live in superRefine.
-Payload:  payloadFactory(values, profile)  normalizes through the contracts and applies payloadCondition policies to decide inclusion. The payload type is derived: export type OnboardingPayload = ReturnType<typeof payloadFactory> - one source of truth, every consumer type-checked against it.
+Validation:  validationFactory(ctx) builds a z.object from each contract's validationSchemaFactory, then a superRefine handles conditional fields - gating on policy.visible and running the full field schema for each one. Cross-field rules that are not policy-driven also live in superRefine. Conditional fields are declared optional in the base z.object - their full schema runs only inside the superRefine gate; otherwise a hidden field would fail base validation before the policy is ever consulted.
+Payload:  payloadFactory(values, profile)  normalizes through the contracts and applies payloadCondition policies to decide inclusion. The factory's return value is checked against the backend-provided request type with satisfies (generated from the API spec where available, otherwise a shared hand-declared request type): a wrong key, a wrong type, or a missing required field is a compile error. export type OnboardingPayload = ReturnType<typeof payloadFactory> remains available to consumers, but correctness flows from the API contract, not from the factory itself.
 Content:  contentFactory(ctx) resolves presentation for all fields - calling each contract's presentationFactory(ctx) for context-dependent fields.
 Submit errors:  submitErrorFactory(response) maps API field names back to form keys (email_address → email, country_code → country, …) so server errors land on the right field.
 Each factory is consumed independently at a different point in the form lifecycle - defaults at initialization, schema at the resolver, payload at submit, content at render.
-No shared execution path would catch a field mismatch between them at runtime. The type constraint is therefore the structural counterpart to the separation: all factory return types are parameterized by keyof FormValues, declared once in types.ts.
-Add a field to FormValues and TypeScript reports a compile error in every factory that does not handle it.
+No shared execution path would catch a field mismatch between them at runtime. The type constraint is therefore the structural counterpart to the separation: the defaults, validation, and content factories are parameterized by keyof FormValues, declared once in types.ts.
+Add a field to FormValues and TypeScript reports a compile error in each of those factories if it does not handle it.
+The payload factory is the deliberate exception: its keys follow the API's naming, not the form's, so it cannot be constrained by keyof FormValues. Its output is constrained by the backend request type via satisfies, and its input coverage by the typed FormValues argument.
 
 
 
@@ -181,8 +184,10 @@ Policies - conditional field participation rules
 Policies exist for one purpose: declaring the conditions under which a field participates in the form. They apply only to conditional fields - fields whose presence depends on other field values or external context.
 Unconditional fields have no policy entry, they are always present and their contracts fully describe them.
 
-A policy has two baseline predicates by default: visible (whether the field renders) and payloadCondition (whether it is included in the submit payload).
-There could be other conditional aspects of a field, like required , so those could be added into policies if such need arises.
+A policy has two baseline predicates: visible (whether the field renders) and payloadCondition (whether it is included in the submit payload). payloadCondition defaults to visible - in the common case where a hidden field is simply omitted from the payload, the condition is written once. An explicit payloadCondition is declared only when render participation and payload participation genuinely diverge.
+There could be other conditional aspects of a field, like required, so those could be added into policies if such need arises.
+
+Hidden-field value retention is also declared here: an optional retainValueWhenHidden flag controls whether a hidden field keeps its value in form state (the default is unmount + unregister - the value is dropped). Whether a specific field should retain its value is a product decision, made per field; the framework only guarantees there is exactly one declared place to make it.
 
 Note: required-ness is not in the policy by default - it is declared on the field contract validation and is intrinsic to the field. A conditional field that renders is required or not according to its own contract. The exception - a field that can be visible but optionally required based on context - adds an explicit required predicate to its policy entry. That is a deliberate override, not the default shape.
 
@@ -191,22 +196,27 @@ Note: required-ness is not in the policy by default - it is declared on the fiel
 
 
 export const FIELD_POLICIES = {
-  [CompanyName.name]: {
-    visible: (c) => c.account_type === 'company',
-    payloadCondition: (c) => c.account_type === 'company',
-  },
-  [State.name]: {
-    visible: (c) => c.country === 'US',
-    payloadCondition: (c) => c.country === 'US',
-  },
-  [PhoneNumber.name]: {
-    visible: (c) => c.preferred_contact === 'sms' && c.country === 'US',
-    payloadCondition: (c) => c.preferred_contact === 'sms' && c.country === 'US',
-  },
-}// used as buildConditionalFieldPolicy(FIELD_POLICIES[CompanyName.name], { account_type: values.account_type })
+  [CompanyName.name]: definePolicy({
+    deps: [AccountType.name],
+    visible: (values) => values[AccountType.name] === 'company',
+    // payloadCondition omitted - defaults to visible
+  }),
+  [State.name]: definePolicy({
+    deps: [Country.name],
+    visible: (values) => values[Country.name] === 'US',
+  }),
+  [PhoneNumber.name]: definePolicy({
+    deps: [PreferredContact.name, Country.name],
+    visible: (values) => values[PreferredContact.name] === 'sms' && values[Country.name] === 'US',
+  }),
+}
 
 
-Any factory that needs to account for conditional field participation reads from policies directly. Policies are the single source of truth for conditional participation, consumed independently by whichever factory needs it:
+Predicates receive the full form values (and the resolved external context, when a policy needs it) and read what they need. deps declares which form values a policy depends on - it documents the dependency and drives the renderer's subscription.
+
+Every consumer evaluates a policy through a single entry point: evaluatePolicy(policy, values, context). The React layer uses a thin shared adapter, usePolicy(policy, control, context), which subscribes (useWatch) to exactly policy.deps and calls evaluatePolicy. No call site assembles a values or context slice by hand - which is what makes the guarantee real: the renderer, the validation gate, and the payload mapping cannot diverge on what a policy sees, because none of them decides what a policy sees.
+
+Policies are the single source of truth for conditional participation, consumed independently by whichever factory needs it:
 
 
 validationFactory - superRefine gates on policy.visible:
@@ -214,7 +224,7 @@ validationFactory - superRefine gates on policy.visible:
 
 
 superRefine((values, ctx) => {
-  const policy = buildConditionalFieldPolicy(FIELD_POLICIES[CompanyName.name], { account_type: values.account_type })
+  const policy = evaluatePolicy(FIELD_POLICIES[CompanyName.name], values, formContext) // formContext: the ctx validationFactory was called with
   if (policy.visible) {
     const result = CompanyName.validationSchemaFactory().safeParse(values[CompanyName.name])
     result.error?.issues.forEach(issue => ctx.addIssue({ ...issue, path: [CompanyName.name] }))
@@ -227,9 +237,7 @@ payloadFactory - payloadCondition gates field inclusion:
 
 
 export const payloadFactory = (values: FormValues, context: PayloadContext) => {
-  const companyNamePolicy = buildConditionalFieldPolicy(
-    FIELD_POLICIES[CompanyName.name], { account_type: values[AccountType.name] }
-  )
+  const companyNamePolicy = evaluatePolicy(FIELD_POLICIES[CompanyName.name], values, context)
 
   return {
     [Username.name]: Username.normalizeValue(values[Username.name]),
@@ -238,7 +246,7 @@ export const payloadFactory = (values: FormValues, context: PayloadContext) => {
     ...(companyNamePolicy.includeInPayload && {
       [CompanyName.name]: CompanyName.normalizeValue(values[CompanyName.name]),
     }),
-  }
+  } satisfies CreateAccountRequest // backend-provided request type: generated from the API spec, or shared and hand-declared
 }
 etc.
  
@@ -248,6 +256,7 @@ Orchestration / renderer - context before the form renders
 
 The orchestrator loads { profile, config, settings ... } asynchronously and passes the form a typed render contract containing the resolved context and the submit mutation.
 The orchestrator never renders fields and holds no validation or payload logic.
+It renders the form only once context is resolved - the form then seeds useForm a single time from defaultValuesFactory(context), and no re-seed (reset) path exists. The form operates on a snapshot of context taken at mount; live context updates mid-edit are out of scope.
 
 The form renderer is a wiring layer, or the runtime adapter and contains no rules of its own.
 It memoizes the schema from validationFactory, seeds useForm with defaultValuesFactory, resolves contentFactory, and binds each field with a Controller, never deciding anything.
@@ -267,7 +276,7 @@ const fieldsPresentation = useMemo(() => contentFactory({ __, settings }), [__, 
   onBlur={onBlur}
   onChange={onChange}
   inputRef={ref}
-       error={error?.message}
+       error={error?.message && __(error.message)}
   label={fieldsPresentation[UserName.name].label}
   required={fieldsPresentation[UserName.name].required} // visual indication only, derived in fieldsPresentation from validation schema factory
  />
@@ -275,15 +284,12 @@ const fieldsPresentation = useMemo(() => contentFactory({ __, settings }), [__, 
 />
 
 
-Conditional fields subscribe to their dependency and evaluate policy inline:
+Conditional fields evaluate their policy through the shared usePolicy adapter, which subscribes to exactly the policy's declared deps:
  
 
 
 
-const accountType = useWatch({ control, name: AccountType.name })
-const companyNamePolicy = buildConditionalFieldPolicy(
-  FIELD_POLICIES[CompanyName.name], { account_type: accountType, profile }
-)
+const companyNamePolicy = usePolicy(FIELD_POLICIES[CompanyName.name], control, formContext)
 
 {companyNamePolicy.visible && (
   <Controller name={CompanyName.name} control={control}
@@ -293,7 +299,7 @@ const companyNamePolicy = buildConditionalFieldPolicy(
   onBlur={onBlur}
   onChange={onChange}
   inputRef={ref}
-        error={error?.message}
+        error={error?.message && __(error.message)}
   label={fieldsPresentation[CompanyName.name].label}
         required={fieldsPresentation[CompanyName.name].required} />
     )} />
@@ -301,7 +307,7 @@ const companyNamePolicy = buildConditionalFieldPolicy(
 Narrowing re-renders - optional (but welcome) optimization
 
 
-The useWatch calls above re-render the whole form component when any watched value changes. For most forms this is acceptable.
+The usePolicy subscription above re-renders the whole form component when any of its watched deps change. For most forms this is acceptable.
 When a form has many fields or expensive subtrees, subscriptions can be narrowed so only the affected part re-renders.
 
 Two approaches work. A narrow render-prop wrapper component owns its own useWatch and renders only its children when its specific dependencies change:
@@ -309,9 +315,9 @@ Two approaches work. A narrow render-prop wrapper component owns its own useWatc
 
 
 
-<ValueObserver control={control} observed={[AccountType.name]}>
-  {([account_type]) => {
-    const policy = buildConditionalFieldPolicy(FIELD_POLICIES[CompanyName.name], { account_type, profile })
+<ValueObserver control={control} observed={FIELD_POLICIES[CompanyName.name].deps}>
+  {(observedValues) => {
+    const policy = evaluatePolicy(FIELD_POLICIES[CompanyName.name], observedValues, formContext)
     return policy.visible && (
       <Controller name={CompanyName.name} control={control} render={…} />
     )
@@ -319,9 +325,36 @@ Two approaches work. A narrow render-prop wrapper component owns its own useWatc
 </ValueObserver>
 
 
-Alternatively, conditional field groups can be extracted into separate child components that each own their own useWatch subscription. Both achieve the same isolation; the choice depends on the form's structure.
+Alternatively, conditional field groups can be extracted into separate child components that each own their own usePolicy call. Both achieve the same isolation; the choice depends on the form's structure.
 
 This optimization is independent of the architecture - policy evaluation, validation, and payload mapping are unaffected either way.
+
+
+
+Async validation - colocated with the contract, wired by convention
+
+
+Async rules (username availability, address verification) do not fit the synchronous schema and are not forced into it. An async validator is a plain util colocated with the field contract - same file or a sibling - keeping the field's complete definition in one place without widening the contract interface:
+
+
+
+// field-contracts/username.ts - colocated with the contract
+export const validateUsernameAvailability = async (value: string, signal: AbortSignal): Promise<string | null> => {
+  const { available } = await checkUsername(value, { signal })
+  return available ? null : 'errors.username.taken'
+}
+
+
+It is a pure async function: value in, i18n error key or null out, cancellation via the passed AbortSignal. It is unit-testable with a stubbed transport and knows nothing about the form runtime.
+
+The wiring conventions belong to the reactivity pillar and are uniform across forms:
+
+- runs debounced on value change, and only after the field's synchronous schema passes - no availability check for a value that is locally invalid
+- each run aborts the previous in-flight request (AbortController) - last write wins, stale responses never land
+- the result surfaces via setError / clearErrors with a distinct error type (e.g. type: 'async'), so it composes with schema errors instead of fighting them
+- submit is blocked while a check is pending or failed
+
+These conventions are implemented once as a shared runtime utility (e.g. useAsyncFieldValidation(control, name, validator)) and reused; an individual form only picks the validator and the field.
 
 
 
@@ -346,12 +379,16 @@ The required prop on an input is a visual affordance (typically an asterisk), no
 export const contentFactory = (ctx) => ({
   [Username.name]: {
     ...resolvePresentation(Username, ctx),
-    required: !Username.validationSchemaFactory(ctx).safeParse('').success,
+    required: deriveRequired(Username, ctx), // shared/guards.ts
   },
   // …
 })
-The validation schema defines the form-level rules - what makes a value acceptable. The content factory derives the visual consequence - whether the input should signal that an empty value will be rejected.
-This keeps the two in sync without independent maintenance: change the schema, and the asterisk follows automatically.
+
+// shared/guards.ts - probe the schema with the field's own empty value
+export const deriveRequired = (contract, ctx) =>
+  !contract.validationSchemaFactory(ctx).safeParse(contract.normalizeValue(undefined)).success
+The probe value is not a hardcoded '' - it is the field's own empty value, produced by its normalizeValue(undefined): the value the form actually holds when the field is untouched and empty. The question the probe asks is therefore exact - "would this field, left empty, fail validation?" - and it generalizes across value types ('' for a string, false for a consent checkbox, undefined for a number). It relies on one convention that must hold anyway: an optional field's schema accepts that field's empty value, because pristine form state contains it.
+The validation schema remains the only place required-ness is declared. The content factory derives the visual consequence: change the schema, and the asterisk follows automatically.
 
 Transport - request boundary and error mapping back
 
@@ -363,8 +400,8 @@ The API client knows nothing about the form's field naming and the form knows no
 End-to-end: one trip through the form
 The pieces connect in a single, deterministic flow - each arrow crosses exactly one boundary, and each boundary is owned by exactly one part:
 
-Hydrate -  orchestration.tsx loads data and hands the form a render contract (context + a submit mutation).
-Default -  useForm starts from defaultValuesFactory(); once context arrives the form re-seeds via reset(defaultValuesFactory(formContext)). Source of each value (static / profile / config) lives in the contract, independent of how it's later judged or sent.
+Hydrate -  orchestration.tsx loads data and renders the form only once context is resolved, handing it a render contract (context + a submit mutation).
+Default -  useForm seeds once from defaultValuesFactory(formContext); the form never re-seeds, and works on the context snapshot taken at mount. Source of each value (static / profile / config) lives in the contract, independent of how it's later judged or sent.
 Render & edit -  Controller binds each contract to a dumb input; copy comes from contentFactory. Conditional fields render based on policy.visible, re-evaluated when their dependency changes.
 Validate -  validationFactory schema runs on the RHF cadence (mode: onBlur, reValidateMode: onChange); conditional field validation is gated by policy.visible in superRefine, which runs each field's complete schema.
 Submit → payload -  payloadFactory(values, profile) normalizes and applies payloadCondition policies to decide inclusion; its return type is the request payload type.
@@ -429,4 +466,4 @@ The renderer holds no logic, so render tests only verify wiring: does the right 
 
 Policies are tested once, consumed everywhere
 
-A single policy test covers visibility, validation gating, and payload inclusion simultaneously - because all three consumers read the same policy function. Change a policy, update one test, all three behaviors follow.
+A single policy test covers visibility, validation gating, and payload inclusion simultaneously - because all three consumers evaluate the same policy through the same entry point (evaluatePolicy), and the policy itself owns which values and context it reads. Change a policy, update one test, all three behaviors follow.
