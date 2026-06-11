@@ -8,52 +8,42 @@ import { PhoneNumberField } from '../field-contracts/phone-number'
 import { PreferredContactField } from '../field-contracts/preferred-contact'
 import { StateField } from '../field-contracts/state'
 import { UsernameField } from '../field-contracts/username'
-import { DEFAULT_PROFILE, type Profile } from '../default-context'
-import { buildConditionalFieldPolicy, FIELD_POLICIES } from '../policies'
-import type { SimpleOnboardingFormValues } from '../types'
+import { DEFAULT_PROFILE } from '../default-context'
+import { evaluatePolicy, FIELD_POLICIES, type PolicyContext } from '../policies'
+import type { SimpleOnboardingApiRequest, SimpleOnboardingFormValues } from '../types'
 
+/*
+  The payload factory is the single place where form state becomes the request
+  shape. It is the deliberate exception to keyof FormValues exhaustiveness: its
+  keys follow the API's naming, not the form's. Correctness is enforced by the
+  `satisfies` check against the backend-provided request type — a wrong key, a
+  wrong type, or a missing required field is a compile error.
+*/
 export function payloadFactory(
   values: SimpleOnboardingFormValues,
-  profile: Profile = DEFAULT_PROFILE,
+  context: PolicyContext = { profile: DEFAULT_PROFILE },
 ) {
-  const account_type = AccountTypeField.normalizeValue(values[AccountTypeField.name])
-  const country = CountryField.normalizeValue(values[CountryField.name])
-  const preferred_contact = PreferredContactField.normalizeValue(
-    values[PreferredContactField.name],
-  )
-
-  const companyNamePolicy = buildConditionalFieldPolicy(
+  const companyNamePolicy = evaluatePolicy(
     FIELD_POLICIES[CompanyNameField.name],
-    {
-      account_type,
-      profile,
-    },
+    values,
+    context,
   )
-
-  const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES[StateField.name], {
-    country,
-    profile,
-  })
-
-  const phoneNumberPolicy = buildConditionalFieldPolicy(
+  const statePolicy = evaluatePolicy(FIELD_POLICIES[StateField.name], values, context)
+  const phoneNumberPolicy = evaluatePolicy(
     FIELD_POLICIES[PhoneNumberField.name],
-    {
-      preferred_contact,
-      country,
-      profile,
-    },
+    values,
+    context,
   )
 
-  // The `satisfies` constraint keeps this factory exhaustive against the
-  // canonical field key set: add a field to SimpleOnboardingFormValues and
-  // this object fails to compile until the field is mapped here.
   return {
     [FirstNameField.name]: FirstNameField.normalizeValue(values[FirstNameField.name]),
-    [EmailField.name]: EmailField.normalizeValue(values[EmailField.name]),
+    email_address: EmailField.normalizeValue(values[EmailField.name]),
     [UsernameField.name]: UsernameField.normalizeValue(values[UsernameField.name]),
-    [AccountTypeField.name]: account_type,
-    [CountryField.name]: country,
-    [PreferredContactField.name]: preferred_contact,
+    [AccountTypeField.name]: AccountTypeField.normalizeValue(values[AccountTypeField.name]),
+    country_code: CountryField.normalizeValue(values[CountryField.name]),
+    preferred_contact_method: PreferredContactField.normalizeValue(
+      values[PreferredContactField.name],
+    ),
     [NewsletterField.name]: NewsletterField.normalizeValue(
       values[NewsletterField.name],
     ),
@@ -64,14 +54,15 @@ export function payloadFactory(
       ),
     }),
     ...(statePolicy.includeInPayload && {
-      [StateField.name]: StateField.normalizeValue(values[StateField.name]),
+      state_code: StateField.normalizeValue(values[StateField.name]),
     }),
     ...(phoneNumberPolicy.includeInPayload && {
       [PhoneNumberField.name]: PhoneNumberField.normalizeValue(
         values[PhoneNumberField.name],
       ),
     }),
-  } satisfies SimpleOnboardingFormValues
+  } satisfies SimpleOnboardingApiRequest
 }
 
+// Derived view for consumers; correctness flows from the API contract above.
 export type SimpleOnboardingPayload = ReturnType<typeof payloadFactory>

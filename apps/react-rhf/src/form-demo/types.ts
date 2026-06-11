@@ -1,4 +1,3 @@
-import type { SimpleOnboardingPayload } from './factories/payload-factory'
 import type { AccountType, PreferredContact } from '../_domain/types'
 
 export interface SimpleOnboardingFormValues {
@@ -14,22 +13,31 @@ export interface SimpleOnboardingFormValues {
   newsletter_opt_in: boolean
 }
 
-export interface SimpleOnboardingSubmitRequest {
-  headers: Record<string, string>
-  payload: SimpleOnboardingPayload
+/*
+  Backend-provided request shape (hand-declared stand-in for a spec-generated
+  type). Its keys follow the API's naming, not the form's — the payload factory
+  is checked against it with `satisfies`, so payload correctness is enforced by
+  the API contract, not maintained by hand.
+*/
+export interface SimpleOnboardingApiRequest {
+  first_name: string
+  email_address: string
+  username: string
+  account_type: AccountType
+  country_code: string
+  preferred_contact_method: PreferredContact
+  newsletter_opt_in: boolean
+  company_name?: string
+  state_code?: string
+  phone_number?: string
 }
 
-export type SimpleOnboardingSubmitErrorKey =
-  | 'first_name'
-  | 'email_address'
-  | 'username'
-  | 'account_type'
-  | 'company_name'
-  | 'country_code'
-  | 'state_code'
-  | 'preferred_contact_method'
-  | 'newsletter_opt_in'
-  | 'phone_number'
+export interface SimpleOnboardingSubmitRequest {
+  headers: Record<string, string>
+  payload: SimpleOnboardingApiRequest
+}
+
+export type SimpleOnboardingSubmitErrorKey = keyof SimpleOnboardingApiRequest
 
 export type SimpleOnboardingSubmitResponse =
   | {

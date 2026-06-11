@@ -9,11 +9,11 @@ const validRequest: SimpleOnboardingSubmitRequest = {
   },
   payload: {
     first_name: 'Luke',
-    email: 'luke@example.com',
+    email_address: 'luke@example.com',
     username: 'luke-form',
     account_type: 'individual',
-    country: 'PL',
-    preferred_contact: 'email',
+    country_code: 'PL',
+    preferred_contact_method: 'email',
     newsletter_opt_in: true,
   },
 }

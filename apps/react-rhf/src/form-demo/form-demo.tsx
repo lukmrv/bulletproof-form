@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller, useForm } from 'react-hook-form'
 import { CheckboxField } from '../components/checkbox-field'
@@ -23,7 +23,7 @@ import { payloadFactory } from './factories/payload-factory'
 import { submitErrorFactory } from './factories/submit-error-factory'
 import { validationFactory } from './factories/validation-factory'
 import { OnboardingFormOrchestrator, type OnboardingFormRenderContract } from './orchestration'
-import { buildConditionalFieldPolicy, FIELD_POLICIES } from './policies'
+import { evaluatePolicy, FIELD_POLICIES } from './policies'
 import { applySubmitErrors } from './shared/apply-submit-response'
 import { ValueObserver } from './shared/value-observer'
 
@@ -34,7 +34,6 @@ export function SimpleOnboardingFormRHF() {
 function SimpleOnboardingFormRenderer({
   bootstrapError,
   formContext,
-  isHydrating,
   submitMutation,
 }: OnboardingFormRenderContract) {
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -45,8 +44,10 @@ function SimpleOnboardingFormRenderer({
   ])
   const fieldContent = useMemo(() => contentFactory({ profile, settings }), [profile, settings])
 
+  // The orchestrator renders this form only once context is resolved, so the
+  // form seeds a single time from that snapshot — no re-seed (reset) path.
   const formMethods = useForm({
-    defaultValues: defaultValuesFactory(),
+    defaultValues: defaultValuesFactory(formContext),
     resolver: zodResolver(validationSchema),
     mode: 'onBlur',
     reValidateMode: 'onChange',
@@ -56,14 +57,9 @@ function SimpleOnboardingFormRenderer({
   const {
     control,
     handleSubmit,
-    reset,
     setError,
     formState: { isSubmitting },
   } = formMethods
-
-  useEffect(() => {
-    reset(defaultValuesFactory(formContext))
-  }, [formContext, reset])
 
   const onFormSubmit = handleSubmit(async (formValues) => {
     const response = await submitMutation({
@@ -71,7 +67,7 @@ function SimpleOnboardingFormRenderer({
         'content-type': 'application/json',
         'x-form-demo': 'react-rhf',
       },
-      payload: payloadFactory(formValues, formContext.profile),
+      payload: payloadFactory(formValues, formContext),
     })
 
     applySubmitErrors(submitErrorFactory(response), { setError, setSubmitError })
@@ -87,8 +83,8 @@ function SimpleOnboardingFormRenderer({
           </div>
         </header>
 
-        <form onSubmit={onFormSubmit} noValidate aria-busy={isHydrating || isSubmitting}>
-          <fieldset className='form-fieldset' disabled={isHydrating || isSubmitting}>
+        <form onSubmit={onFormSubmit} noValidate aria-busy={isSubmitting}>
+          <fieldset className='form-fieldset' disabled={isSubmitting}>
             <div className='grid grid-2'>
               <Controller
                 name={FirstNameField.name}
@@ -176,14 +172,12 @@ function SimpleOnboardingFormRenderer({
               />
             </div>
 
-            <ValueObserver control={control} observed={[AccountTypeField.name]}>
-              {([account_type]) => {
-                const companyNamePolicy = buildConditionalFieldPolicy(
+            <ValueObserver control={control} observed={FIELD_POLICIES[CompanyNameField.name].deps}>
+              {(observedValues) => {
+                const companyNamePolicy = evaluatePolicy(
                   FIELD_POLICIES[CompanyNameField.name],
-                  {
-                    account_type,
-                    profile,
-                  },
+                  observedValues,
+                  formContext,
                 )
 
                 return companyNamePolicy.visible && (
@@ -208,14 +202,12 @@ function SimpleOnboardingFormRenderer({
               }}
             </ValueObserver>
 
-            <ValueObserver control={control} observed={[CountryField.name]}>
-              {([country]) => {
-                const statePolicy = buildConditionalFieldPolicy(
+            <ValueObserver control={control} observed={FIELD_POLICIES[StateField.name].deps}>
+              {(observedValues) => {
+                const statePolicy = evaluatePolicy(
                   FIELD_POLICIES[StateField.name],
-                  {
-                    country,
-                    profile,
-                  },
+                  observedValues,
+                  formContext,
                 )
 
                 return statePolicy.visible && (
@@ -260,16 +252,13 @@ function SimpleOnboardingFormRenderer({
 
               <ValueObserver
                 control={control}
-                observed={[PreferredContactField.name, CountryField.name]}
+                observed={FIELD_POLICIES[PhoneNumberField.name].deps}
               >
-                {([preferred_contact, country]) => {
-                  const phoneNumberPolicy = buildConditionalFieldPolicy(
+                {(observedValues) => {
+                  const phoneNumberPolicy = evaluatePolicy(
                     FIELD_POLICIES[PhoneNumberField.name],
-                    {
-                      preferred_contact,
-                      country,
-                      profile,
-                    },
+                    observedValues,
+                    formContext,
                   )
 
                   return phoneNumberPolicy.visible && (
@@ -313,8 +302,8 @@ function SimpleOnboardingFormRenderer({
             <div className='actions'>
               <button
                 type='submit'
-                className={isHydrating || isSubmitting ? 'loading-indicator' : ''}
-                disabled={isHydrating || isSubmitting}
+                className={isSubmitting ? 'loading-indicator' : ''}
+                disabled={isSubmitting}
               >
                 Submit
               </button>

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { OnboardingDefaultDataContext } from '../../_domain/types'
-import type { StaticValidationFieldContract } from './shared/contract'
+import type { FieldContractBase } from './shared/contract'
 import { isString } from './shared/guards'
 
 export const COUNTRY_OPTIONS = [
@@ -15,9 +15,10 @@ function isCountryCode(value: unknown): value is (typeof COUNTRY_OPTIONS)[number
 
 export const CountryField = {
   name: 'country',
-  validationSchema: z.string().trim().refine(isCountryCode, {
-    message: 'Country is invalid',
-  }),
+  validationSchemaFactory: () =>
+    z.string().trim().refine(isCountryCode, {
+      message: 'Country is invalid',
+    }),
   normalizeValue(value: unknown): string {
     return isString(value) ? value.trim().toUpperCase() : ''
   },
@@ -26,7 +27,7 @@ export const CountryField = {
     return isCountryCode(country) ? country : 'US'
   },
   presentationFactory: () => ({ label: 'Country' }),
-} satisfies StaticValidationFieldContract<
+} satisfies FieldContractBase<
   'country',
   string,
   Pick<OnboardingDefaultDataContext, 'geo'>

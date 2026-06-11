@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { OnboardingDefaultDataContext } from '../../_domain/types'
 import { DEFAULT_SETTINGS } from '../default-context'
-import type { ValidationFactoryFieldContract } from './shared/contract'
+import type { FieldContractBase } from './shared/contract'
 import { isString } from './shared/guards'
 
 const PHONE_WITH_PREFIX_REGEX = /^\+\d{8,15}$/
@@ -54,7 +54,7 @@ export const PhoneNumberField = {
     label: 'Phone number',
     helperText: 'Use E.164, example +12065550199',
   }),
-} satisfies ValidationFactoryFieldContract<
+} satisfies FieldContractBase<
   'phone_number',
   string,
   Pick<OnboardingDefaultDataContext, 'profile' | 'settings'>,

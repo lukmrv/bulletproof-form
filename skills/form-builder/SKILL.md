@@ -7,7 +7,8 @@ description: Implement or refactor forms using the layered contract/factory/poli
 
 A form is not a UI widget — it is a state domain with a contract. Ask "what is the form's
 contract, and what execution model makes it deterministic?", never "which form library?".
-The working baseline implementing everything below: `apps/react-rhf/src/form-demo/`.
+The full design rationale lives in `form_approach.md` (repo root); the working baseline
+implementing everything below: `apps/react-rhf/src/form-demo/`.
 
 Four design goals govern every decision:
 
@@ -16,7 +17,8 @@ Four design goals govern every decision:
 - **Single ownership** — every concern has exactly one home; a change has one obvious place
   to land.
 - **Library-agnostic core** — contracts carry no dependency on the form runtime; the runtime
-  is a swappable implementation detail.
+  is a swappable implementation detail. Agnosticism is scoped to the form runtime: the
+  validation library (zod) is a deliberate, declared dependency of the contract layer.
 - **Testable in isolation** — each concern is a pure function or a dumb component,
   unit-testable without mocking modules.
 
@@ -27,14 +29,20 @@ execution. Keep them separate: cross-field logic never leaks into validation, pa
 never leaks into the UI, performance tuning never rewrites the contract.
 
 1. **Default values** — what state does the form start in (static / session / async-hydrated)?
+   The source of a value is independent of how it is later judged or sent.
 2. **Validation** — what makes a value acceptable (field-level, cross-field, contextual)?
-3. **Payload mapping** — how does form state become the API contract? The payload type is
-   derived from the payload factory — one source of truth.
+3. **Payload mapping** — how does form state become the API contract? The payload factory is
+   the single place form state becomes the request shape, and it is type-checked against the
+   **backend-provided request type** — payload correctness is enforced by the API contract,
+   not maintained by hand.
 4. **Dependency handling** — how do fields and context reshape the form at runtime
    (visibility, payload inclusion)? The only concern about relationships between fields.
+   Hidden-field semantics are declared here; the baseline is unmount + unregister with
+   policy-driven payload omission.
 5. **Reactivity strategy** — how state flows between form and fields: controlled state,
-   narrow subscriptions, derive-on-change. Delegated to the form runtime; it has no module
-   of its own, only wiring conventions.
+   narrow subscriptions, derive-on-change. Async edges (debounced async validation,
+   stale-request cancellation, last-write-wins) live here. Delegated to the form runtime;
+   it has no module of its own, only wiring conventions.
 
 ## Anatomy — required file layout
 
@@ -42,12 +50,12 @@ never leaks into the UI, performance tuning never rewrites the contract.
 <form>/
 ├── field-contracts/
 │   ├── shared/contract.ts        # FieldContractBase; validation & presentation shapes
-│   ├── shared/guards.ts          # shared utilities (isString, isBoolean, …)
+│   ├── shared/guards.ts          # shared contract utilities (isString, deriveRequired, …)
 │   └── <field>.ts                # one contract per field
 ├── factories/
 │   ├── default-values-factory.ts # contracts + context → defaultValues
 │   ├── validation-factory.ts     # zod object + superRefine for conditional fields
-│   ├── payload-factory.ts        # values → API request shape (payload type derived)
+│   ├── payload-factory.ts        # values → API request shape (satisfies backend type)
 │   ├── content-factory.ts        # labels/helper text + derived required indicator
 │   └── submit-error-factory.ts   # API error keys → form field keys
 ├── policies.ts                   # conditional field participation rules
@@ -60,10 +68,16 @@ Dumb inputs live outside the form (e.g. `components/`) and are shared across for
 
 ## 1. types.ts — the canonical field key set
 
-Declare `FormValues` once. Every factory is typed against `keyof FormValues` (return type
-or `satisfies`), so adding a field produces a compile error in every factory that does not
-handle it. This matters because the factories share no runtime execution path — the type
-constraint is the only thing that catches a field mismatch between them.
+Declare `FormValues` once. The defaults, validation, and content factories are typed against
+`keyof FormValues` (return type or `satisfies`), so adding a field produces a compile error
+in every factory that does not handle it. This matters because the factories share no
+runtime execution path — the type constraint is the only thing that catches a field mismatch
+between them.
+
+The **payload factory is the deliberate exception**: its keys follow the API's naming, not
+the form's, so it cannot be constrained by `keyof FormValues`. Its output is constrained by
+the backend request type via `satisfies`, and its input coverage by the typed `FormValues`
+argument.
 
 For CMS/runtime-configured forms, `FormValues` is necessarily a loose record and
 field-to-contract dispatch is dynamic (e.g. by `inputType`); compile-time exhaustiveness is
@@ -78,35 +92,63 @@ a shared library only when genuine reuse emerges.
 
 ```ts
 // field-contracts/shared/contract.ts
-interface FieldContractBase<TName extends string, TValue, TDefaultContext, TPresentationContext> {
+interface FieldContractBase<TName extends string, TValue, TDefaultContext,
+  TValidationContext = void, TPresentationContext = void> {
   name: TName
   normalizeValue: (value: unknown) => TValue
   defaultDataFactory: (context: TDefaultContext) => TValue
+  validationSchemaFactory: (context?: TValidationContext) => ZodType<TValue>
   presentationFactory: (context?: TPresentationContext) => FieldContent  // label, helperText, placeholder
 }
-// Two variants: validationSchema (static) or validationSchemaFactory(context) (contextual).
 ```
+
+Validation is always exposed as `validationSchemaFactory` — fields whose rules do not depend
+on context simply ignore the argument. One shape for every field, so every consumer calls
+contracts the same way.
 
 ```ts
 // field-contracts/company-name.ts
 export const CompanyNameField = {
   name: 'company_name',
-  validationSchema: z.string().trim().min(1, 'Company name is required'),
+  validationSchemaFactory: () => z.string().trim().min(1, 'Company name is required'),
   normalizeValue: (value: unknown) => isString(value) ? value.trim() : '',
   defaultDataFactory: ({ profile }) => CompanyNameField.normalizeValue(profile.company_name),
   presentationFactory: () => ({ label: 'Company name' }),
-} satisfies StaticValidationFieldContract<'company_name', string, Pick<Context, 'profile'>>
+} satisfies FieldContractBase<'company_name', string, Pick<Context, 'profile'>>
 ```
 
 Rules:
 
 - `name` is a typed literal; every other layer references the field as `Field.name` — field
-  keys are never re-typed as string literals anywhere.
+  keys are never re-typed as string literals anywhere. (Payload keys that follow API naming
+  are the exception; the `satisfies` check against the request type owns their correctness.)
 - Required-ness is intrinsic: it lives on the validation schema. A conditional field that
   renders is required or not according to its own contract.
 - Note what is absent: no JSX, no visibility rule, no payload key, no cross-field logic.
 - Each contract receives only the context slice it needs (`Pick<Context, 'profile'>`).
 - Select/radio option lists are declared alongside the contract and passed into inputs.
+- When the product has an i18n runtime, validation messages and presentation copy are i18n
+  keys (`'errors.username.required'`), not user-facing strings; the renderer translates at
+  the display boundary (`error={error?.message && __(error.message)}`). The contract stays
+  free of the i18n runtime either way. (The repo demo has no i18n runtime, so it carries
+  plain strings — the boundary principle is unchanged.)
+
+### Async validation — colocated with the contract, wired by convention
+
+Async rules (username availability, address verification) are not forced into the
+synchronous schema. An async validator is a plain util colocated with the field contract —
+a pure async function: value in, error key (or message) or `null` out, cancellation via a
+passed `AbortSignal`. Wiring conventions belong to the reactivity pillar and are uniform:
+
+- runs debounced on value change, only after the field's synchronous schema passes
+- each run aborts the previous in-flight request — last write wins, stale responses never land
+- result surfaces via `setError`/`clearErrors` with a distinct error type (e.g. `type: 'async'`)
+  so it composes with schema errors
+- submit is blocked while a check is pending or failed
+
+Implement these once as a shared runtime utility (e.g.
+`useAsyncFieldValidation(control, name, validator)`); an individual form only picks the
+validator and the field.
 
 ## 3. Policies — conditional field participation
 
@@ -115,24 +157,39 @@ only for conditional fields — fields whose presence depends on other field val
 context. Unconditional fields have no policy entry.
 
 Two baseline predicates: `visible` (does the field render) and `payloadCondition` (is it
-included in the submit payload). **`required` is not a policy predicate by default** — only
-a field that is visible but contextually required adds an explicit `required` predicate as
-a deliberate override.
+included in the submit payload). **`payloadCondition` defaults to `visible`** — write the
+condition once; declare an explicit `payloadCondition` only when render participation and
+payload participation genuinely diverge. **`required` is not a policy predicate by
+default** — only a field that is visible but contextually required adds an explicit
+`required` predicate as a deliberate override. Hidden-field value retention is also declared
+here: an optional `retainValueWhenHidden` flag (the baseline default is unmount + unregister,
+value dropped).
 
 ```ts
 export const FIELD_POLICIES = {
-  [CompanyNameField.name]: {
-    visible: (c) => c.account_type === 'company',
-    payloadCondition: (c) => c.account_type === 'company',
-  },
-  // …
+  [CompanyNameField.name]: definePolicy({
+    deps: [AccountTypeField.name],
+    visible: (values) => values[AccountTypeField.name] === 'company',
+    // payloadCondition omitted — defaults to visible
+  }),
+  [PhoneNumberField.name]: definePolicy({
+    deps: [PreferredContactField.name, CountryField.name],
+    visible: (values) =>
+      values[PreferredContactField.name] === 'sms' && values[CountryField.name] === 'US',
+  }),
 }
-// buildConditionalFieldPolicy(rule, context) → { visible, includeInPayload }
 ```
 
-Type each field's policy context precisely (a per-field context map), and have policies be
-the single source of truth consumed independently by validation, payload mapping, and the
-renderer — change a policy and all three behaviors follow.
+Predicates receive the form values (and the resolved external context when a policy needs
+it). `deps` declares which form values a policy reads — it documents the dependency and
+drives the renderer's subscription.
+
+Every consumer evaluates a policy through a single entry point:
+`evaluatePolicy(policy, values, context) → { visible, includeInPayload }`. No call site
+assembles a values or context slice by hand — that is what makes the guarantee real: the
+renderer, the validation gate, and the payload mapping cannot diverge on what a policy sees,
+because none of them decides what a policy sees. Change a policy and all three behaviors
+follow.
 
 ## 4. Factories — contracts become form-wide concerns
 
@@ -147,16 +204,15 @@ returns `FormValues` (exhaustive by return type).
 
 ```ts
 return z.object({
-  [FirstNameField.name]: FirstNameField.validationSchema,        // unconditional: full schema
-  [CompanyNameField.name]: z.string().optional(),                // conditional: permissive here
+  [FirstNameField.name]: FirstNameField.validationSchemaFactory(),   // unconditional: full schema
+  [CompanyNameField.name]: z.string().optional(),                    // conditional: permissive here
   // …
-} satisfies Record<keyof FormValues, ZodType>)                   // exhaustiveness
+} satisfies Record<keyof FormValues, ZodType>)                       // exhaustiveness
   .superRefine((values, ctx) => {
-    const policy = buildConditionalFieldPolicy(FIELD_POLICIES[CompanyNameField.name],
-      { account_type: values.account_type, profile })
+    const policy = evaluatePolicy(FIELD_POLICIES[CompanyNameField.name], values, formContext)
     if (policy.visible) {
       // run the field's COMPLETE contract schema, forward its issues
-      const result = CompanyNameField.validationSchema.safeParse(values[CompanyNameField.name])
+      const result = CompanyNameField.validationSchemaFactory().safeParse(values[CompanyNameField.name])
       result.error?.issues.forEach((issue) =>
         ctx.addIssue({ ...issue, path: [CompanyNameField.name] }))
     }
@@ -170,33 +226,39 @@ an emptiness check and a format check, guard the format check so an empty value 
 single issue.
 
 **payload-factory** — normalizes through the contracts; conditional inclusion is gated
-purely by `payloadCondition`:
+purely by `payloadCondition`; keys follow the API's naming:
 
 ```ts
-export function payloadFactory(values: FormValues, profile: Profile) {
+export function payloadFactory(values: FormValues, context: PayloadContext) {
+  const companyNamePolicy = evaluatePolicy(FIELD_POLICIES[CompanyNameField.name], values, context)
   return {
     [UsernameField.name]: UsernameField.normalizeValue(values[UsernameField.name]),
+    email_address: EmailField.normalizeValue(values[EmailField.name]),   // API naming
     // …
     ...(companyNamePolicy.includeInPayload && {
       [CompanyNameField.name]: CompanyNameField.normalizeValue(values[CompanyNameField.name]),
     }),
-  } satisfies FormValues   // or the API shape — keeps the factory exhaustive
+  } satisfies CreateAccountRequest  // backend-provided: generated from the API spec, or shared and hand-declared
 }
-export type Payload = ReturnType<typeof payloadFactory>   // derived, never hand-maintained
+export type Payload = ReturnType<typeof payloadFactory>  // derived view for consumers
 ```
 
-Every payload consumer is type-checked against the derived type.
+A wrong key, a wrong type, or a missing required field is a compile error. `ReturnType`
+remains available to consumers, but correctness flows from the API contract, not from the
+factory itself.
 
 **content-factory** — aggregates each contract's `presentationFactory(ctx)` into a
 `Record<keyof FormValues, ResolvedFieldContent>`. It declares no copy itself. The `required`
-indicator is **derived, not declared**: probe the field's validation schema with the field's
-own empty representation so it works for every value type —
+indicator is **derived, not declared** — `deriveRequired` (in `field-contracts/shared/guards.ts`)
+probes the schema with the field's own empty representation so it works for every value type:
 
 ```ts
-required: !validationSchema.safeParse(field.normalizeValue(undefined)).success
+export const deriveRequired = (contract, ctx) =>
+  !contract.validationSchemaFactory(ctx).safeParse(contract.normalizeValue(undefined)).success
 ```
 
-Change the schema and the asterisk follows automatically.
+Change the schema and the asterisk follows automatically. This relies on one convention that
+must hold anyway: an optional field's schema accepts that field's empty value.
 
 **submit-error-factory** — a pure function mapping API error field names back to form keys
 (`email_address → email`, `country_code → country`). It is the only coupling point between
@@ -205,9 +267,11 @@ the API's naming and the form's naming.
 ## 5. Orchestrator — context before the form
 
 The orchestrator loads context asynchronously (profile / config / settings, with abort
-handling) and hands the renderer a typed render contract: the resolved context plus a narrow
-submit mutation (`saveOnboarding`, not a whole API client). It never renders fields and
-holds no validation or payload logic.
+handling) and **renders the form only once context is resolved**, handing the renderer a
+typed render contract: the resolved context plus a narrow submit mutation (`saveOnboarding`,
+not a whole API client). It never renders fields and holds no validation or payload logic.
+The form operates on a snapshot of context taken at mount; live context updates mid-edit are
+out of scope.
 
 ## 6. Renderer — pure wiring, no rules
 
@@ -217,62 +281,38 @@ React Hook Form as the reference runtime:
 ```ts
 const validationSchema = useMemo(() => validationFactory({ settings, profile }), [settings, profile])
 const fieldContent = useMemo(() => contentFactory({ profile, settings }), [profile, settings])
-const { control, handleSubmit, reset, setError } = useForm({
-  defaultValues: defaultValuesFactory(),
+const { control, handleSubmit, setError } = useForm({
+  defaultValues: defaultValuesFactory(formContext),  // seeded ONCE; no re-seed (reset) path exists
   resolver: zodResolver(validationSchema),
   mode: 'onBlur',
   reValidateMode: 'onChange',
   shouldUnregister: true,            // hidden-field baseline: unmount + unregister
 })
-useEffect(() => { reset(defaultValuesFactory(formContext)) }, [formContext, reset])
 ```
 
-- Render immediately with static defaults, keep the whole `<fieldset>` `disabled` while
-  hydrating, then `reset` once context arrives — the reset can never clobber user input.
+- The form mounts only after the orchestrator resolves context, seeds `useForm` a single
+  time from `defaultValuesFactory(formContext)`, and never calls `reset` to re-seed.
 - Unconditional fields bind a `Controller` to a dumb input; copy and `required` come from
   `fieldContent[Field.name]`.
-- Conditional fields subscribe to their dependencies and evaluate the policy inline; render
-  only when `policy.visible`. Hidden fields unmount and unregister
+- Conditional fields subscribe to exactly their policy's `deps` and evaluate through
+  `evaluatePolicy`; render only when `policy.visible`. Hidden fields unmount and unregister
   (`shouldUnregister: true`), and the payload factory still gates them by policy.
-- Submit: `payloadFactory(values, context)` → mutation → `submitErrorFactory(response)` →
-  `setError` per mapped field, so server errors land on the originating field.
+- Submit: `payloadFactory(values, formContext)` → mutation → `submitErrorFactory(response)`
+  → `setError` per mapped field, so server errors land on the originating field.
 
-**Narrowing re-renders (optional optimization, not architecture):** inline `useWatch` calls
-re-render the whole form component when any watched value changes — acceptable for most
-forms. When a form has many fields or expensive subtrees, wrap conditional groups in a
-render-prop observer that owns its own subscription, so only the affected subtree
-re-renders:
-
-```tsx
-// shared/value-observer.tsx — typed wrapper over useWatch for narrow subscriptions
-import type { ReactNode } from 'react'
-import {
-  type Control, type FieldPath, type FieldPathValues, type FieldValues, useWatch,
-} from 'react-hook-form'
-
-type ValueObserverProps<
-  TFieldValues extends FieldValues,
-  TObserved extends readonly FieldPath<TFieldValues>[],
-> = {
-  control: Control<TFieldValues>
-  observed: readonly [...TObserved]
-  children: (observedValue: FieldPathValues<TFieldValues, TObserved>) => ReactNode
-}
-
-export function ValueObserver<
-  TFieldValues extends FieldValues,
-  const TObserved extends readonly FieldPath<TFieldValues>[],
->({ control, observed, children }: ValueObserverProps<TFieldValues, TObserved>) {
-  const observedValue = useWatch<TFieldValues, TObserved>({ control, name: observed })
-  return <>{children(observedValue)}</>
-}
-```
+**Narrowing re-renders (optional optimization, not architecture):** a plain
+`usePolicy(policy, control, context)`-style subscription at the top of the form re-renders
+the whole form component when any watched dep changes — acceptable for most forms. When a
+form has many fields or expensive subtrees, wrap conditional groups in a render-prop
+observer that owns its own subscription, so only the affected subtree re-renders. The
+observer takes the policy's `deps` and yields values keyed by field name, feeding straight
+into `evaluatePolicy` — no call site assembles a slice by hand:
 
 ```tsx
-<ValueObserver control={control} observed={[AccountTypeField.name]}>
-  {([account_type]) => {
-    const policy = buildConditionalFieldPolicy(
-      FIELD_POLICIES[CompanyNameField.name], { account_type, profile },
+<ValueObserver control={control} observed={FIELD_POLICIES[CompanyNameField.name].deps}>
+  {(observedValues) => {
+    const policy = evaluatePolicy(
+      FIELD_POLICIES[CompanyNameField.name], observedValues, formContext,
     )
     return policy.visible && (
       <Controller name={CompanyNameField.name} control={control} render={/* … */} />
@@ -281,8 +321,9 @@ export function ValueObserver<
 </ValueObserver>
 ```
 
+(See `shared/value-observer.tsx` in the baseline for the typed `useWatch` wrapper.)
 Alternatively, extract conditional groups into child components that own their own
-`useWatch`. Both achieve the same isolation; policy evaluation, validation, and payload
+subscription. Both achieve the same isolation; policy evaluation, validation, and payload
 mapping are unaffected either way.
 
 ## 7. Inputs — dumb, uniform, free of logic
@@ -311,15 +352,18 @@ IoC boundary: the renderer calls the orchestrator-provided mutation with
 
 ## End-to-end flow (verify every new form against this)
 
-1. **Hydrate** — orchestrator loads context, hands render contract (context + mutation).
-2. **Default** — `useForm` seeds from `defaultValuesFactory()`; on context arrival the form
-   re-seeds via `reset(defaultValuesFactory(formContext))` (inputs disabled until then).
+1. **Hydrate** — orchestrator loads context and renders the form only once context is
+   resolved, handing it a render contract (context + mutation).
+2. **Default** — `useForm` seeds once from `defaultValuesFactory(formContext)`; the form
+   never re-seeds and works on the context snapshot taken at mount.
 3. **Render & edit** — `Controller` binds contracts to dumb inputs; copy from
-   `contentFactory`; conditional fields render on `policy.visible`.
-4. **Validate** — factory schema on the runtime cadence; conditional validation gated by
-   `policy.visible` in `superRefine`, running each field's complete schema.
+   `contentFactory`; conditional fields render on `policy.visible`, re-evaluated when their
+   declared `deps` change.
+4. **Validate** — factory schema on the runtime cadence (`mode: 'onBlur'`,
+   `reValidateMode: 'onChange'`); conditional validation gated by `policy.visible` in
+   `superRefine`, running each field's complete schema.
 5. **Submit → payload** — `payloadFactory` normalizes and applies `payloadCondition`; its
-   return type is the request payload type.
+   output satisfies the backend request type.
 6. **Transport** — API client sends, returns response.
 7. **Map back** — `submitErrorFactory` translates error keys; `setError` per field.
 
@@ -345,7 +389,8 @@ rendering and partial validation of a larger schema.
   factories, and policies are tested as `expect(fn(input)).toEqual(output)` — no React, no
   form library, no DOM, no providers.
 - **Policies are tested once, consumed everywhere** — one policy test covers visibility,
-  validation gating, and payload inclusion, because all three read the same function.
+  validation gating, and payload inclusion, because all three consumers evaluate the same
+  policy through `evaluatePolicy`.
 - **Render tests stay thin**: right field appears, conditional visibility responds to value
   changes, submit invokes the mutation. They change when fields are added, not when rules
   change. The renderer holds no logic to test beyond wiring.
@@ -353,13 +398,14 @@ rendering and partial validation of a larger schema.
 ## Change map
 
 **Add a field:** contract (with `name`) → `FormValues` in types.ts → fix the compile errors
-this raises in every factory → bind in renderer. Input component only if a new input type
-is needed.
+this raises in the defaults/validation/content factories → map it in the payload factory
+(the backend request type flags it if required) → bind in renderer. Input component only if
+a new input type is needed.
 
-**Add a conditional field:** the above, plus a policy entry (`visible`,
-`payloadCondition`); keep required-ness on the contract schema; gate the full contract
-schema on `policy.visible` in `superRefine`; gate payload inclusion on `payloadCondition`;
-render behind the policy with a narrow subscription.
+**Add a conditional field:** the above, plus a policy entry via `definePolicy` (`deps`,
+`visible`, `payloadCondition` only if it diverges); keep required-ness on the contract
+schema; gate the full contract schema on `policy.visible` in `superRefine`; gate payload
+inclusion on `includeInPayload`; render behind the policy subscribed to `policy.deps`.
 
 **Change a rule:** find its single owner (contract = intrinsic; policy = participation;
 superRefine = cross-field; payload factory = API shape) and change it there only. If you are
@@ -367,15 +413,24 @@ about to change two layers for one rule, the rule is in the wrong place.
 
 ## Compliance checklist
 
-- [ ] Field keys come from `Field.name`; no re-typed string literals.
+- [ ] Field keys come from `Field.name`; no re-typed string literals (API-named payload keys
+      excepted — the backend request type owns those).
 - [ ] Required-ness lives on contract schemas; policies own participation only
-      (`visible`, `payloadCondition`; `required` predicate only as a deliberate override).
+      (`visible`, `payloadCondition` defaulting to `visible`; `required` predicate only as
+      a deliberate override).
+- [ ] Policies declare `deps`; every consumer goes through `evaluatePolicy`; no call site
+      assembles a values/context slice by hand.
 - [ ] Conditional validation gated on `policy.visible`, running the full contract schema.
-- [ ] Payload inclusion gated purely by `payloadCondition`; payload type derived via
-      `ReturnType`.
-- [ ] All factories exhaustive against `keyof FormValues`.
-- [ ] Required indicator derived from the schema via the field's own empty value.
-- [ ] Hidden fields unmount + unregister; payload still gates by policy.
+- [ ] Payload inclusion gated purely by `payloadCondition`; payload output `satisfies` the
+      backend-provided request type; keys follow API naming.
+- [ ] Defaults, validation, and content factories exhaustive against `keyof FormValues`
+      (payload factory is the deliberate exception).
+- [ ] Required indicator derived via `deriveRequired` from the schema and the field's own
+      empty value.
+- [ ] Hidden fields unmount + unregister (unless a policy declares `retainValueWhenHidden`);
+      payload still gates by policy.
+- [ ] Orchestrator renders the form only once context is resolved; the form seeds once and
+      has no re-seed (`reset`) path.
 - [ ] Orchestrator renders no fields; renderer decides nothing; inputs hold no logic and
       reach for nothing.
 - [ ] Logic tests are pure function calls; no module mocking anywhere.

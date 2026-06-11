@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { OnboardingDefaultDataContext, PreferredContact } from '../../_domain/types'
-import type { StaticValidationFieldContract } from './shared/contract'
+import type { FieldContractBase } from './shared/contract'
 
 const PREFERRED_CONTACT_VALUES = ['email', 'sms'] as const
 
@@ -18,7 +18,7 @@ function isPreferredContact(value: unknown): value is PreferredContact {
 
 export const PreferredContactField = {
   name: 'preferred_contact',
-  validationSchema: z.enum(PREFERRED_CONTACT_VALUES),
+  validationSchemaFactory: () => z.enum(PREFERRED_CONTACT_VALUES),
   normalizeValue(value: unknown): PreferredContact {
     if (isPreferredContact(value)) return value
     return 'email'
@@ -29,7 +29,7 @@ export const PreferredContactField = {
     return PreferredContactField.normalizeValue(profile.preferred_contact)
   },
   presentationFactory: () => ({ label: 'Preferred contact' }),
-} satisfies StaticValidationFieldContract<
+} satisfies FieldContractBase<
   'preferred_contact',
   PreferredContact,
   Pick<OnboardingDefaultDataContext, 'profile'>

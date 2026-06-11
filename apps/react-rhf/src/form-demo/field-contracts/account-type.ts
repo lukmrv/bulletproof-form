@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AccountType, OnboardingDefaultDataContext } from '../../_domain/types'
-import type { StaticValidationFieldContract } from './shared/contract'
+import type { FieldContractBase } from './shared/contract'
 
 const ACCOUNT_TYPE_VALUES = ['individual', 'company'] as const
 
@@ -15,7 +15,7 @@ function isAccountType(value: unknown): value is AccountType {
 
 export const AccountTypeField = {
   name: 'account_type',
-  validationSchema: z.enum(ACCOUNT_TYPE_VALUES),
+  validationSchemaFactory: () => z.enum(ACCOUNT_TYPE_VALUES),
   normalizeValue(value: unknown): AccountType {
     if (isAccountType(value)) return value
     return 'individual'
@@ -24,7 +24,7 @@ export const AccountTypeField = {
     return AccountTypeField.normalizeValue(profile.account_type)
   },
   presentationFactory: () => ({ label: 'Account type' }),
-} satisfies StaticValidationFieldContract<
+} satisfies FieldContractBase<
   'account_type',
   AccountType,
   Pick<OnboardingDefaultDataContext, 'profile'>

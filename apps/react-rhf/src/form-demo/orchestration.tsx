@@ -12,7 +12,6 @@ interface OnboardingFormOrchestratorProps {
 export interface OnboardingFormRenderContract {
   bootstrapError: string | null
   formContext: ResolvedOnboardingFormContext
-  isHydrating: boolean
   submitMutation: SimpleOnboardingSubmitMutation
 }
 
@@ -77,11 +76,22 @@ export function OnboardingFormOrchestrator({
     }
   }, [])
 
+  // The form renders only once context is resolved: it seeds useForm a single
+  // time from that snapshot, and no re-seed (reset) path exists downstream.
+  if (isHydrating) {
+    return (
+      <main className='page'>
+        <section className='panel'>
+          <p aria-busy='true'>Loading profile…</p>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <Renderer
       bootstrapError={bootstrapError}
       formContext={formContext}
-      isHydrating={isHydrating}
       submitMutation={(request) => onboardingApiClient.saveOnboarding(request)}
     />
   )

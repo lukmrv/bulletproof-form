@@ -1,17 +1,18 @@
 import { z } from 'zod'
 import type { OnboardingDefaultDataContext } from '../../_domain/types'
-import type { StaticValidationFieldContract } from './shared/contract'
+import type { FieldContractBase } from './shared/contract'
 import { isString } from './shared/guards'
 
 const USERNAME_REGEX = /^[a-z0-9-]{3,20}$/
 
 export const UsernameField = {
   name: 'username',
-  validationSchema: z
-    .string()
-    .trim()
-    .min(1, 'Username is required')
-    .regex(USERNAME_REGEX, 'Username must be 3-20 chars: lowercase, numbers, -'),
+  validationSchemaFactory: () =>
+    z
+      .string()
+      .trim()
+      .min(1, 'Username is required')
+      .regex(USERNAME_REGEX, 'Username must be 3-20 chars: lowercase, numbers, -'),
   normalizeValue(value: unknown): string {
     return isString(value) ? value.trim() : ''
   },
@@ -22,7 +23,7 @@ export const UsernameField = {
     label: 'Username',
     helperText: '3-20 chars, lowercase letters, numbers, hyphen',
   }),
-} satisfies StaticValidationFieldContract<
+} satisfies FieldContractBase<
   'username',
   string,
   Pick<OnboardingDefaultDataContext, 'profile'>

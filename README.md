@@ -5,6 +5,7 @@ libraries and UI stacks.
 
 ## Project Layout
 
+- `form_approach.md`: the forms architecture design doc — the source of truth this repo follows.
 - `skills/form-builder`: local skill for LLM-guided form changes.
 - `apps/react-rhf`: the layered baseline form (React Hook Form).
 
@@ -15,17 +16,22 @@ Implemented:
 - `react-rhf` single-page baseline form with explicit field/form/payload layering.
 - Field contracts that carry the field's canonical `name`, intrinsic validation, normalization,
   default derivation, and presentation. Every other layer references fields as `Field.name`.
-- Async bootstrap hydration via a single `reset(...)` path, with the form disabled while hydrating.
-- Form policies (`visible`, `payloadCondition`) consumed by conditional rendering, validation
-  gating, and payload inclusion.
+- Async bootstrap hydration gated by the orchestrator: the form renders only once context is
+  resolved, seeds `useForm` a single time from `defaultValuesFactory(formContext)`, and has no
+  re-seed (`reset`) path.
+- Form policies declared via `definePolicy` (`deps`, `visible`, `payloadCondition` defaulting to
+  `visible`) and consumed through the single `evaluatePolicy` entry point by conditional
+  rendering, validation gating, and payload inclusion. The renderer subscribes to exactly
+  `policy.deps` — no call site assembles a values slice by hand.
 - Validation composed per contract; conditional fields run their full contract schema in
   `superRefine`, gated on `policy.visible`.
 - Submit boundary built from `validationFactory -> payloadFactory` (mock API client in baseline).
 - Shared onboarding data orchestrator for bootstrap, context, and the submit mutation dependency.
 - Submit mutation IoC accepts `{ payload, headers }`; response mapping is normalized by a
   form-level submit error factory before RHF applies errors.
-- Submit error keys may follow backend naming such as `email_address` while form field names stay
-  local to the form.
+- Payload keys follow backend naming (`email_address`, `country_code`) and the payload factory is
+  checked with `satisfies` against the backend-provided request type; submit error keys map back
+  to form field names via the submit error factory.
 - Typecheck/build/test/lint/format scripts for `react-rhf`.
 
 ## Architecture Rules
@@ -47,9 +53,12 @@ Implemented:
 3. Form layer owns composition and cross-field behavior.
 
 - `defaultValuesFactory`, `validationFactory`, renderer-local form setup, conditional rendering.
-- `policies.ts` owns conditional field participation: `visible` and `payloadCondition`. A field
+- `policies.ts` owns conditional field participation: `visible` and `payloadCondition`
+  (defaulting to `visible`), declared with `definePolicy` alongside the policy's `deps`. A field
   that is visible but only contextually required adds an explicit `required` predicate as a
   deliberate override — it is not part of the default policy shape.
+- All consumers evaluate policies through `evaluatePolicy(policy, values, context)`; the
+  renderer's conditional subscriptions are driven by `policy.deps`.
 - Conditional field validation is gated on `policy.visible` in `superRefine`, which runs the
   field's complete contract schema. Cross-field rules that are not policy-driven also live there.
 
@@ -62,10 +71,13 @@ Implemented:
 
 5. Keep type ownership direct.
 
-- The canonical field key set (`FormValues`) lives in `types.ts`; factories are typed against
-  `keyof FormValues` so adding a field produces a compile error in every factory that does not
-  handle it.
-- Payload shape from `ReturnType<typeof payloadFactory>`.
+- The canonical field key set (`FormValues`) lives in `types.ts`; the defaults, validation, and
+  content factories are typed against `keyof FormValues` so adding a field produces a compile
+  error in every factory that does not handle it.
+- The payload factory is the deliberate exception: its keys follow the API's naming and its
+  output is checked with `satisfies` against the backend-provided request type
+  (`SimpleOnboardingApiRequest`). `ReturnType<typeof payloadFactory>` stays available as a
+  derived view, but correctness flows from the API contract.
 
 ## Change Workflow
 
