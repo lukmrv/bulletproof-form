@@ -17,6 +17,10 @@ export const UsernameField = {
   defaultDataFactory({ profile }: Pick<OnboardingDefaultDataContext, 'profile'>): string {
     return UsernameField.normalizeValue(profile.username)
   },
+  presentationFactory: () => ({
+    label: 'Username',
+    helperText: '3-20 chars, lowercase letters, numbers, hyphen',
+  }),
 } satisfies StaticValidationFieldContract<
   string,
   Pick<OnboardingDefaultDataContext, 'profile'>

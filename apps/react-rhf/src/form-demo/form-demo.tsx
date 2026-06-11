@@ -7,7 +7,7 @@ import { TextField } from '../components/text-field'
 import { ACCOUNT_TYPE_OPTIONS } from './field-contracts/account-type'
 import { COUNTRY_OPTIONS } from './field-contracts/country'
 import { PREFERRED_CONTACT_OPTIONS } from './field-contracts/preferred-contact'
-import { ONBOARDING_FIELD_CONTENT } from './field-content'
+import { contentFactory } from './factories/content-factory'
 import { defaultValuesFactory } from './factories/default-values-factory'
 import { payloadFactory } from './factories/payload-factory'
 import { submitErrorFactory } from './factories/submit-error-factory'
@@ -33,6 +33,7 @@ function SimpleOnboardingFormRenderer({
     settings,
     profile,
   ])
+  const fieldContent = useMemo(() => contentFactory({ profile, settings }), [profile, settings])
 
   const formMethods = useForm({
     defaultValues: defaultValuesFactory(),
@@ -89,7 +90,8 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={ONBOARDING_FIELD_CONTENT.first_name.label}
+                    label={fieldContent.first_name.label}
+                    required={fieldContent.first_name.required}
                   />
                 )}
               />
@@ -104,7 +106,8 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={ONBOARDING_FIELD_CONTENT.email.label}
+                    label={fieldContent.email.label}
+                    required={fieldContent.email.required}
                   />
                 )}
               />
@@ -120,8 +123,9 @@ function SimpleOnboardingFormRenderer({
                   onChange={onChange}
                   inputRef={ref}
                   error={error?.message}
-                  label={ONBOARDING_FIELD_CONTENT.username.label}
-                  helperText={ONBOARDING_FIELD_CONTENT.username.helperText}
+                  label={fieldContent.username.label}
+                  helperText={fieldContent.username.helperText}
+                  required={fieldContent.username.required}
                 />
               )}
             />
@@ -137,7 +141,8 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={ONBOARDING_FIELD_CONTENT.account_type.label}
+                    label={fieldContent.account_type.label}
+                    required={fieldContent.account_type.required}
                     options={ACCOUNT_TYPE_OPTIONS}
                   />
                 )}
@@ -153,7 +158,8 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={ONBOARDING_FIELD_CONTENT.country.label}
+                    label={fieldContent.country.label}
+                    required={fieldContent.country.required}
                     options={COUNTRY_OPTIONS}
                   />
                 )}
@@ -183,7 +189,7 @@ function SimpleOnboardingFormRenderer({
                         onChange={onChange}
                         inputRef={ref}
                         error={error?.message}
-                        label={ONBOARDING_FIELD_CONTENT.company_name.label}
+                        label={fieldContent.company_name.label}
                         required={companyNamePolicy.required}
                       />
                     )}
@@ -212,7 +218,7 @@ function SimpleOnboardingFormRenderer({
                         onChange={onChange}
                         inputRef={ref}
                         error={error?.message}
-                        label={ONBOARDING_FIELD_CONTENT.state.label}
+                        label={fieldContent.state.label}
                         required={statePolicy.required}
                       />
                     )}
@@ -232,7 +238,8 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={ONBOARDING_FIELD_CONTENT.preferred_contact.label}
+                    label={fieldContent.preferred_contact.label}
+                    required={fieldContent.preferred_contact.required}
                     options={PREFERRED_CONTACT_OPTIONS}
                   />
                 )}
@@ -262,8 +269,8 @@ function SimpleOnboardingFormRenderer({
                           onChange={onChange}
                           inputRef={ref}
                           error={error?.message}
-                          label={ONBOARDING_FIELD_CONTENT.phone_number.label}
-                          helperText={ONBOARDING_FIELD_CONTENT.phone_number.helperText}
+                          label={fieldContent.phone_number.label}
+                          helperText={fieldContent.phone_number.helperText}
                           required={phoneNumberPolicy.required}
                         />
                       )}
@@ -282,7 +289,7 @@ function SimpleOnboardingFormRenderer({
                   onBlur={onBlur}
                   onChange={onChange}
                   inputRef={ref}
-                  label={ONBOARDING_FIELD_CONTENT.newsletter_opt_in.label}
+                  label={fieldContent.newsletter_opt_in.label}
                 />
               )}
             />

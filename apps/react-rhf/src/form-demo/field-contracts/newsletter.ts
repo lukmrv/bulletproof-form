@@ -11,6 +11,7 @@ export const NewsletterField = {
   defaultDataFactory({ profile }: Pick<OnboardingDefaultDataContext, 'profile'>): boolean {
     return NewsletterField.normalizeValue(profile.newsletter_opt_in)
   },
+  presentationFactory: () => ({ label: 'Receive newsletter' }),
 } satisfies StaticValidationFieldContract<
   boolean,
   Pick<OnboardingDefaultDataContext, 'profile'>

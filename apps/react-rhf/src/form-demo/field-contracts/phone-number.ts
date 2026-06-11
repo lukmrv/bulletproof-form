@@ -41,6 +41,10 @@ export const PhoneNumberField = {
 
     return phoneNumber
   },
+  presentationFactory: () => ({
+    label: 'Phone number',
+    helperText: 'Use E.164, example +12065550199',
+  }),
 } satisfies ValidationFactoryFieldContract<
   string,
   Pick<OnboardingDefaultDataContext, 'profile' | 'settings'>,

@@ -11,6 +11,7 @@ export const StateField = {
   defaultDataFactory({ geo }: Pick<OnboardingDefaultDataContext, 'geo'>): string {
     return StateField.normalizeValue(geo.state)
   },
+  presentationFactory: () => ({ label: 'State' }),
 } satisfies StaticValidationFieldContract<
   string,
   Pick<OnboardingDefaultDataContext, 'geo'>

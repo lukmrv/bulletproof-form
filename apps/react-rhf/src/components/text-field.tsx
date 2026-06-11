@@ -20,7 +20,10 @@ export const TextField = memo(({
 }: TextFieldProps) => {
   return (
     <label className='field'>
-      <span className='label'>{label}</span>
+      <span className='label'>
+        {label}
+        {required ? <span className='required-indicator' aria-hidden='true'>*</span> : null}
+      </span>
       {helperText ? <span className='hint'>{helperText}</span> : null}
       <input
         type={type}

@@ -27,6 +27,7 @@ export const PreferredContactField = {
   }: Pick<OnboardingDefaultDataContext, 'profile'>): PreferredContact {
     return PreferredContactField.normalizeValue(profile.preferred_contact)
   },
+  presentationFactory: () => ({ label: 'Preferred contact' }),
 } satisfies StaticValidationFieldContract<
   PreferredContact,
   Pick<OnboardingDefaultDataContext, 'profile'>

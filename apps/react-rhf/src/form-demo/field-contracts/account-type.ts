@@ -22,6 +22,7 @@ export const AccountTypeField = {
   defaultDataFactory({ profile }: Pick<OnboardingDefaultDataContext, 'profile'>): AccountType {
     return AccountTypeField.normalizeValue(profile.account_type)
   },
+  presentationFactory: () => ({ label: 'Account type' }),
 } satisfies StaticValidationFieldContract<
   AccountType,
   Pick<OnboardingDefaultDataContext, 'profile'>

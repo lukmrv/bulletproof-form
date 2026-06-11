@@ -11,6 +11,7 @@ export const FirstNameField = {
   defaultDataFactory({ profile }: Pick<OnboardingDefaultDataContext, 'profile'>): string {
     return FirstNameField.normalizeValue(profile.first_name)
   },
+  presentationFactory: () => ({ label: 'First name' }),
 } satisfies StaticValidationFieldContract<
   string,
   Pick<OnboardingDefaultDataContext, 'profile'>

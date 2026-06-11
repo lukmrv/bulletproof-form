@@ -24,6 +24,7 @@ export const CountryField = {
     const country = CountryField.normalizeValue(geo.country)
     return isCountryCode(country) ? country : 'US'
   },
+  presentationFactory: () => ({ label: 'Country' }),
 } satisfies StaticValidationFieldContract<
   string,
   Pick<OnboardingDefaultDataContext, 'geo'>
