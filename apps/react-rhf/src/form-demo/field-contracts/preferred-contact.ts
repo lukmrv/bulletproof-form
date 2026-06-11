@@ -17,6 +17,7 @@ function isPreferredContact(value: unknown): value is PreferredContact {
 }
 
 export const PreferredContactField = {
+  name: 'preferred_contact',
   validationSchema: z.enum(PREFERRED_CONTACT_VALUES),
   normalizeValue(value: unknown): PreferredContact {
     if (isPreferredContact(value)) return value
@@ -29,6 +30,7 @@ export const PreferredContactField = {
   },
   presentationFactory: () => ({ label: 'Preferred contact' }),
 } satisfies StaticValidationFieldContract<
+  'preferred_contact',
   PreferredContact,
   Pick<OnboardingDefaultDataContext, 'profile'>
 >

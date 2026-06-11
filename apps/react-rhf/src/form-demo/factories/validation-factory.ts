@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z, type ZodType } from 'zod'
 import { AccountTypeField } from '../field-contracts/account-type'
 import { CompanyNameField } from '../field-contracts/company-name'
 import { CountryField } from '../field-contracts/country'
@@ -12,6 +12,7 @@ import { UsernameField } from '../field-contracts/username'
 import type { OnboardingDefaultDataContext } from '../../_domain/types'
 import { DEFAULT_PROFILE, DEFAULT_SETTINGS } from '../default-context'
 import { buildConditionalFieldPolicy, FIELD_POLICIES } from '../policies'
+import type { SimpleOnboardingFormValues } from '../types'
 
 export function validationFactory({
   settings = DEFAULT_SETTINGS,
@@ -22,38 +23,58 @@ export function validationFactory({
   })
 
   return z
-    .object({
-      first_name: FirstNameField.validationSchema,
-      email: EmailField.validationSchema,
-      username: UsernameField.validationSchema,
-      account_type: AccountTypeField.validationSchema,
-      company_name: CompanyNameField.validationSchema.optional(),
-      country: CountryField.validationSchema,
-      state: StateField.validationSchema.optional(),
-      preferred_contact: PreferredContactField.validationSchema,
-      phone_number: phoneValidationSchema.optional(),
-      newsletter_opt_in: NewsletterField.validationSchema,
-    })
+    .object(
+      {
+        // Unconditional fields validate their full contract schema here.
+        // Conditional fields are permissive in the base object: their complete
+        // contract schema runs in superRefine, gated on policy.visible, so a
+        // hidden field can never fail validation.
+        [FirstNameField.name]: FirstNameField.validationSchema,
+        [EmailField.name]: EmailField.validationSchema,
+        [UsernameField.name]: UsernameField.validationSchema,
+        [AccountTypeField.name]: AccountTypeField.validationSchema,
+        [CompanyNameField.name]: z.string().optional(),
+        [CountryField.name]: CountryField.validationSchema,
+        [StateField.name]: z.string().optional(),
+        [PreferredContactField.name]: PreferredContactField.validationSchema,
+        [PhoneNumberField.name]: z.string().optional(),
+        [NewsletterField.name]: NewsletterField.validationSchema,
+      } satisfies Record<keyof SimpleOnboardingFormValues, ZodType>,
+    )
     // Form-level validation boundary:
-    // Cross-field and policy-driven requirements live here because they depend on
-    // multiple fields and external context (e.g. profile/settings). Field contracts
-    // only own intrinsic single-field validation and normalization.
+    // Conditional fields are gated on policy.visible and run their complete
+    // contract schema. Cross-field rules that are not policy-driven would also
+    // live here. Field contracts only own intrinsic single-field validation.
     .superRefine((values, ctx) => {
       const companyNamePolicy = buildConditionalFieldPolicy(
-        FIELD_POLICIES.company_name,
+        FIELD_POLICIES[CompanyNameField.name],
         {
           account_type: values.account_type,
           profile,
         },
       )
 
-      const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES.state, {
+      if (companyNamePolicy.visible) {
+        const result = CompanyNameField.validationSchema.safeParse(
+          values[CompanyNameField.name],
+        )
+        result.error?.issues.forEach((issue) =>
+          ctx.addIssue({ ...issue, path: [CompanyNameField.name] })
+        )
+      }
+
+      const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES[StateField.name], {
         country: values.country,
         profile,
       })
 
+      if (statePolicy.visible) {
+        const result = StateField.validationSchema.safeParse(values[StateField.name])
+        result.error?.issues.forEach((issue) => ctx.addIssue({ ...issue, path: [StateField.name] }))
+      }
+
       const phoneNumberPolicy = buildConditionalFieldPolicy(
-        FIELD_POLICIES.phone_number,
+        FIELD_POLICIES[PhoneNumberField.name],
         {
           preferred_contact: values.preferred_contact,
           country: values.country,
@@ -61,35 +82,11 @@ export function validationFactory({
         },
       )
 
-      const company_name = CompanyNameField.normalizeValue(values.company_name)
-
-      if (companyNamePolicy.required && !company_name) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['company_name'],
-          message: 'Company name is required for company account',
-        })
-      }
-
-      const state = StateField.normalizeValue(values.state)
-      if (statePolicy.required && !state) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['state'],
-          message: 'State is required when country is US',
-        })
-      }
-
-      if (phoneNumberPolicy.required) {
-        const phone_number = PhoneNumberField.normalizeValue(values.phone_number)
-
-        if (!phone_number) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['phone_number'],
-            message: 'Phone number is required for SMS contact in US',
-          })
-        }
+      if (phoneNumberPolicy.visible) {
+        const result = phoneValidationSchema.safeParse(values[PhoneNumberField.name])
+        result.error?.issues.forEach((issue) =>
+          ctx.addIssue({ ...issue, path: [PhoneNumberField.name] })
+        )
       }
     })
 }

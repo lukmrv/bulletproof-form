@@ -25,7 +25,7 @@ describe('form factories', () => {
     expect(defaultValuesFactory(MOCK_BOOTSTRAP_CONTEXT)).toEqual(validCompanyValues)
   })
 
-  it('uses policies to require conditional fields in validation', () => {
+  it('runs conditional field contract schemas when policies make them visible', () => {
     const schema = validationFactory({
       profile: DEFAULT_PROFILE,
       settings: DEFAULT_SETTINGS,
@@ -80,7 +80,7 @@ describe('form factories', () => {
     })
   })
 
-  it('keeps policy visibility, required, and payload participation aligned', () => {
+  it('keeps policy visibility and payload participation aligned', () => {
     expect(
       buildConditionalFieldPolicy(FIELD_POLICIES.phone_number, {
         preferred_contact: 'sms',
@@ -89,7 +89,6 @@ describe('form factories', () => {
       }),
     ).toEqual({
       visible: true,
-      required: true,
       includeInPayload: true,
     })
   })

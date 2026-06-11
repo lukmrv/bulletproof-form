@@ -22,15 +22,17 @@ export function defaultValuesFactory({
   const profileWithSettingsContext = { profile, settings }
 
   return {
-    first_name: FirstNameField.defaultDataFactory(profileContext),
-    email: EmailField.defaultDataFactory(profileContext),
-    username: UsernameField.defaultDataFactory(profileContext),
-    account_type: AccountTypeField.defaultDataFactory(profileContext),
-    company_name: CompanyNameField.defaultDataFactory(profileContext),
-    country: CountryField.defaultDataFactory(geoContext),
-    state: StateField.defaultDataFactory(geoContext),
-    preferred_contact: PreferredContactField.defaultDataFactory(profileContext),
-    phone_number: PhoneNumberField.defaultDataFactory(profileWithSettingsContext),
-    newsletter_opt_in: NewsletterField.defaultDataFactory(profileContext),
+    [FirstNameField.name]: FirstNameField.defaultDataFactory(profileContext),
+    [EmailField.name]: EmailField.defaultDataFactory(profileContext),
+    [UsernameField.name]: UsernameField.defaultDataFactory(profileContext),
+    [AccountTypeField.name]: AccountTypeField.defaultDataFactory(profileContext),
+    [CompanyNameField.name]: CompanyNameField.defaultDataFactory(profileContext),
+    [CountryField.name]: CountryField.defaultDataFactory(geoContext),
+    [StateField.name]: StateField.defaultDataFactory(geoContext),
+    [PreferredContactField.name]: PreferredContactField.defaultDataFactory(profileContext),
+    [PhoneNumberField.name]: PhoneNumberField.defaultDataFactory(
+      profileWithSettingsContext,
+    ),
+    [NewsletterField.name]: NewsletterField.defaultDataFactory(profileContext),
   }
 }

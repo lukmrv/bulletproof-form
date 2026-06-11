@@ -6,6 +6,7 @@ import { isString } from './shared/guards'
 const USERNAME_REGEX = /^[a-z0-9-]{3,20}$/
 
 export const UsernameField = {
+  name: 'username',
   validationSchema: z
     .string()
     .trim()
@@ -22,6 +23,7 @@ export const UsernameField = {
     helperText: '3-20 chars, lowercase letters, numbers, hyphen',
   }),
 } satisfies StaticValidationFieldContract<
+  'username',
   string,
   Pick<OnboardingDefaultDataContext, 'profile'>
 >

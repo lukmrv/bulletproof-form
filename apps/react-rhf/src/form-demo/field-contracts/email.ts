@@ -6,6 +6,7 @@ import { isString } from './shared/guards'
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const EmailField = {
+  name: 'email',
   validationSchema: z
     .string()
     .trim()
@@ -19,6 +20,7 @@ export const EmailField = {
   },
   presentationFactory: () => ({ label: 'Email' }),
 } satisfies StaticValidationFieldContract<
+  'email',
   string,
   Pick<OnboardingDefaultDataContext, 'profile'>
 >

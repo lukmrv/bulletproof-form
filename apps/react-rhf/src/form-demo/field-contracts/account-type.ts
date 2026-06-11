@@ -14,6 +14,7 @@ function isAccountType(value: unknown): value is AccountType {
 }
 
 export const AccountTypeField = {
+  name: 'account_type',
   validationSchema: z.enum(ACCOUNT_TYPE_VALUES),
   normalizeValue(value: unknown): AccountType {
     if (isAccountType(value)) return value
@@ -24,6 +25,7 @@ export const AccountTypeField = {
   },
   presentationFactory: () => ({ label: 'Account type' }),
 } satisfies StaticValidationFieldContract<
+  'account_type',
   AccountType,
   Pick<OnboardingDefaultDataContext, 'profile'>
 >

@@ -14,6 +14,7 @@ function isCountryCode(value: unknown): value is (typeof COUNTRY_OPTIONS)[number
 }
 
 export const CountryField = {
+  name: 'country',
   validationSchema: z.string().trim().refine(isCountryCode, {
     message: 'Country is invalid',
   }),
@@ -26,6 +27,7 @@ export const CountryField = {
   },
   presentationFactory: () => ({ label: 'Country' }),
 } satisfies StaticValidationFieldContract<
+  'country',
   string,
   Pick<OnboardingDefaultDataContext, 'geo'>
 >

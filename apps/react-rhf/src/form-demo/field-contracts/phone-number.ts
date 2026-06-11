@@ -7,7 +7,13 @@ import { isString } from './shared/guards'
 const PHONE_WITH_PREFIX_REGEX = /^\+\d{8,15}$/
 const PHONE_WITHOUT_PREFIX_REGEX = /^\d{8,15}$/
 
+/*
+  Required-ness is intrinsic to the contract: when this field participates in
+  the form (policy.visible), an empty value is rejected. Whether it participates
+  at all is the policy's concern, not the contract's.
+*/
 export const PhoneNumberField = {
+  name: 'phone_number',
   validationSchemaFactory({
     settings = DEFAULT_SETTINGS,
   }: Pick<OnboardingDefaultDataContext, 'settings'> = {}) {
@@ -17,9 +23,12 @@ export const PhoneNumberField = {
       ? 'Phone number must use E.164 format'
       : 'Phone number must contain 8-15 digits'
 
-    return z.string().trim().refine((value) => !value || regex.test(value), {
-      message,
-    })
+    return z
+      .string()
+      .trim()
+      .min(1, 'Phone number is required')
+      // empty is already rejected by min(1); guard so it raises a single issue
+      .refine((value) => value === '' || regex.test(value), { message })
   },
   normalizeValue(value: unknown): string {
     return isString(value) ? value.trim() : ''
@@ -46,6 +55,7 @@ export const PhoneNumberField = {
     helperText: 'Use E.164, example +12065550199',
   }),
 } satisfies ValidationFactoryFieldContract<
+  'phone_number',
   string,
   Pick<OnboardingDefaultDataContext, 'profile' | 'settings'>,
   Pick<OnboardingDefaultDataContext, 'settings'>

@@ -22,11 +22,12 @@ describe('content factory', () => {
     expect(content.username.required).toBe(true)
     expect(content.country.required).toBe(true)
 
-    // Intrinsically optional (required-ness is policy/context-driven, not on the
-    // contract): the contract schema accepts the field's empty value.
-    expect(content.company_name.required).toBe(false)
-    expect(content.state.required).toBe(false)
-    expect(content.phone_number.required).toBe(false)
+    // Conditional fields are required by their own contract: whether they
+    // participate at all is the policy's concern, but when they render the
+    // contract schema rejects an empty value.
+    expect(content.company_name.required).toBe(true)
+    expect(content.state.required).toBe(true)
+    expect(content.phone_number.required).toBe(true)
 
     // Non-string fields must not be mis-derived as required by an '' probe.
     expect(content.newsletter_opt_in.required).toBe(false)

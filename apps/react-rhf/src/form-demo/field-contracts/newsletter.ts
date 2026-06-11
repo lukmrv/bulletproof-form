@@ -4,6 +4,7 @@ import type { StaticValidationFieldContract } from './shared/contract'
 import { isBoolean } from './shared/guards'
 
 export const NewsletterField = {
+  name: 'newsletter_opt_in',
   validationSchema: z.boolean(),
   normalizeValue(value: unknown): boolean {
     return isBoolean(value) ? value : false
@@ -13,6 +14,7 @@ export const NewsletterField = {
   },
   presentationFactory: () => ({ label: 'Receive newsletter' }),
 } satisfies StaticValidationFieldContract<
+  'newsletter_opt_in',
   boolean,
   Pick<OnboardingDefaultDataContext, 'profile'>
 >

@@ -4,9 +4,19 @@ import { Controller, useForm } from 'react-hook-form'
 import { CheckboxField } from '../components/checkbox-field'
 import { SelectField } from '../components/select-field'
 import { TextField } from '../components/text-field'
-import { ACCOUNT_TYPE_OPTIONS } from './field-contracts/account-type'
-import { COUNTRY_OPTIONS } from './field-contracts/country'
-import { PREFERRED_CONTACT_OPTIONS } from './field-contracts/preferred-contact'
+import { ACCOUNT_TYPE_OPTIONS, AccountTypeField } from './field-contracts/account-type'
+import { CompanyNameField } from './field-contracts/company-name'
+import { COUNTRY_OPTIONS, CountryField } from './field-contracts/country'
+import { EmailField } from './field-contracts/email'
+import { FirstNameField } from './field-contracts/first-name'
+import { NewsletterField } from './field-contracts/newsletter'
+import { PhoneNumberField } from './field-contracts/phone-number'
+import {
+  PREFERRED_CONTACT_OPTIONS,
+  PreferredContactField,
+} from './field-contracts/preferred-contact'
+import { StateField } from './field-contracts/state'
+import { UsernameField } from './field-contracts/username'
 import { contentFactory } from './factories/content-factory'
 import { defaultValuesFactory } from './factories/default-values-factory'
 import { payloadFactory } from './factories/payload-factory'
@@ -81,7 +91,7 @@ function SimpleOnboardingFormRenderer({
           <fieldset className='form-fieldset' disabled={isHydrating || isSubmitting}>
             <div className='grid grid-2'>
               <Controller
-                name='first_name'
+                name={FirstNameField.name}
                 control={control}
                 render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                   <TextField
@@ -90,14 +100,14 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={fieldContent.first_name.label}
-                    required={fieldContent.first_name.required}
+                    label={fieldContent[FirstNameField.name].label}
+                    required={fieldContent[FirstNameField.name].required}
                   />
                 )}
               />
 
               <Controller
-                name='email'
+                name={EmailField.name}
                 control={control}
                 render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                   <TextField
@@ -106,15 +116,15 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={fieldContent.email.label}
-                    required={fieldContent.email.required}
+                    label={fieldContent[EmailField.name].label}
+                    required={fieldContent[EmailField.name].required}
                   />
                 )}
               />
             </div>
 
             <Controller
-              name='username'
+              name={UsernameField.name}
               control={control}
               render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                 <TextField
@@ -123,16 +133,16 @@ function SimpleOnboardingFormRenderer({
                   onChange={onChange}
                   inputRef={ref}
                   error={error?.message}
-                  label={fieldContent.username.label}
-                  helperText={fieldContent.username.helperText}
-                  required={fieldContent.username.required}
+                  label={fieldContent[UsernameField.name].label}
+                  helperText={fieldContent[UsernameField.name].helperText}
+                  required={fieldContent[UsernameField.name].required}
                 />
               )}
             />
 
             <div className='grid grid-2'>
               <Controller
-                name='account_type'
+                name={AccountTypeField.name}
                 control={control}
                 render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                   <SelectField
@@ -141,15 +151,15 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={fieldContent.account_type.label}
-                    required={fieldContent.account_type.required}
+                    label={fieldContent[AccountTypeField.name].label}
+                    required={fieldContent[AccountTypeField.name].required}
                     options={ACCOUNT_TYPE_OPTIONS}
                   />
                 )}
               />
 
               <Controller
-                name='country'
+                name={CountryField.name}
                 control={control}
                 render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                   <SelectField
@@ -158,18 +168,18 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={fieldContent.country.label}
-                    required={fieldContent.country.required}
+                    label={fieldContent[CountryField.name].label}
+                    required={fieldContent[CountryField.name].required}
                     options={COUNTRY_OPTIONS}
                   />
                 )}
               />
             </div>
 
-            <ValueObserver control={control} observed={['account_type']}>
+            <ValueObserver control={control} observed={[AccountTypeField.name]}>
               {([account_type]) => {
                 const companyNamePolicy = buildConditionalFieldPolicy(
-                  FIELD_POLICIES.company_name,
+                  FIELD_POLICIES[CompanyNameField.name],
                   {
                     account_type,
                     profile,
@@ -178,7 +188,7 @@ function SimpleOnboardingFormRenderer({
 
                 return companyNamePolicy.visible && (
                   <Controller
-                    name='company_name'
+                    name={CompanyNameField.name}
                     control={control}
                     render={(
                       { field: { onBlur, onChange, ref, value }, fieldState: { error } },
@@ -189,8 +199,8 @@ function SimpleOnboardingFormRenderer({
                         onChange={onChange}
                         inputRef={ref}
                         error={error?.message}
-                        label={fieldContent.company_name.label}
-                        required={companyNamePolicy.required}
+                        label={fieldContent[CompanyNameField.name].label}
+                        required={fieldContent[CompanyNameField.name].required}
                       />
                     )}
                   />
@@ -198,16 +208,19 @@ function SimpleOnboardingFormRenderer({
               }}
             </ValueObserver>
 
-            <ValueObserver control={control} observed={['country']}>
+            <ValueObserver control={control} observed={[CountryField.name]}>
               {([country]) => {
-                const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES.state, {
-                  country,
-                  profile,
-                })
+                const statePolicy = buildConditionalFieldPolicy(
+                  FIELD_POLICIES[StateField.name],
+                  {
+                    country,
+                    profile,
+                  },
+                )
 
                 return statePolicy.visible && (
                   <Controller
-                    name='state'
+                    name={StateField.name}
                     control={control}
                     render={(
                       { field: { onBlur, onChange, ref, value }, fieldState: { error } },
@@ -218,8 +231,8 @@ function SimpleOnboardingFormRenderer({
                         onChange={onChange}
                         inputRef={ref}
                         error={error?.message}
-                        label={fieldContent.state.label}
-                        required={statePolicy.required}
+                        label={fieldContent[StateField.name].label}
+                        required={fieldContent[StateField.name].required}
                       />
                     )}
                   />
@@ -229,7 +242,7 @@ function SimpleOnboardingFormRenderer({
 
             <div className='grid grid-2'>
               <Controller
-                name='preferred_contact'
+                name={PreferredContactField.name}
                 control={control}
                 render={({ field: { onBlur, onChange, ref, value }, fieldState: { error } }) => (
                   <SelectField
@@ -238,17 +251,20 @@ function SimpleOnboardingFormRenderer({
                     onChange={onChange}
                     inputRef={ref}
                     error={error?.message}
-                    label={fieldContent.preferred_contact.label}
-                    required={fieldContent.preferred_contact.required}
+                    label={fieldContent[PreferredContactField.name].label}
+                    required={fieldContent[PreferredContactField.name].required}
                     options={PREFERRED_CONTACT_OPTIONS}
                   />
                 )}
               />
 
-              <ValueObserver control={control} observed={['preferred_contact', 'country']}>
+              <ValueObserver
+                control={control}
+                observed={[PreferredContactField.name, CountryField.name]}
+              >
                 {([preferred_contact, country]) => {
                   const phoneNumberPolicy = buildConditionalFieldPolicy(
-                    FIELD_POLICIES.phone_number,
+                    FIELD_POLICIES[PhoneNumberField.name],
                     {
                       preferred_contact,
                       country,
@@ -258,7 +274,7 @@ function SimpleOnboardingFormRenderer({
 
                   return phoneNumberPolicy.visible && (
                     <Controller
-                      name='phone_number'
+                      name={PhoneNumberField.name}
                       control={control}
                       render={(
                         { field: { onBlur, onChange, ref, value }, fieldState: { error } },
@@ -269,9 +285,9 @@ function SimpleOnboardingFormRenderer({
                           onChange={onChange}
                           inputRef={ref}
                           error={error?.message}
-                          label={fieldContent.phone_number.label}
-                          helperText={fieldContent.phone_number.helperText}
-                          required={phoneNumberPolicy.required}
+                          label={fieldContent[PhoneNumberField.name].label}
+                          helperText={fieldContent[PhoneNumberField.name].helperText}
+                          required={fieldContent[PhoneNumberField.name].required}
                         />
                       )}
                     />
@@ -281,7 +297,7 @@ function SimpleOnboardingFormRenderer({
             </div>
 
             <Controller
-              name='newsletter_opt_in'
+              name={NewsletterField.name}
               control={control}
               render={({ field: { onBlur, onChange, ref, value } }) => (
                 <CheckboxField
@@ -289,7 +305,7 @@ function SimpleOnboardingFormRenderer({
                   onBlur={onBlur}
                   onChange={onChange}
                   inputRef={ref}
-                  label={fieldContent.newsletter_opt_in.label}
+                  label={fieldContent[NewsletterField.name].label}
                 />
               )}
             />

@@ -3,8 +3,14 @@ import type { OnboardingDefaultDataContext } from '../../_domain/types'
 import type { StaticValidationFieldContract } from './shared/contract'
 import { isString } from './shared/guards'
 
+/*
+  Required-ness is intrinsic to the contract: when this field participates in
+  the form (policy.visible), an empty value is rejected. Whether it participates
+  at all is the policy's concern, not the contract's.
+*/
 export const StateField = {
-  validationSchema: z.string(),
+  name: 'state',
+  validationSchema: z.string().trim().min(1, 'State is required'),
   normalizeValue(value: unknown): string {
     return isString(value) ? value.trim() : ''
   },
@@ -13,6 +19,7 @@ export const StateField = {
   },
   presentationFactory: () => ({ label: 'State' }),
 } satisfies StaticValidationFieldContract<
+  'state',
   string,
   Pick<OnboardingDefaultDataContext, 'geo'>
 >

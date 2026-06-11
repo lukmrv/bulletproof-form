@@ -52,21 +52,30 @@ export function contentFactory({
   ResolvedFieldContent
 > {
   return {
-    first_name: resolveFieldContent(FirstNameField, FirstNameField.validationSchema),
-    email: resolveFieldContent(EmailField, EmailField.validationSchema),
-    username: resolveFieldContent(UsernameField, UsernameField.validationSchema),
-    account_type: resolveFieldContent(AccountTypeField, AccountTypeField.validationSchema),
-    company_name: resolveFieldContent(CompanyNameField, CompanyNameField.validationSchema),
-    country: resolveFieldContent(CountryField, CountryField.validationSchema),
-    state: resolveFieldContent(StateField, StateField.validationSchema),
-    preferred_contact: resolveFieldContent(
+    [FirstNameField.name]: resolveFieldContent(FirstNameField, FirstNameField.validationSchema),
+    [EmailField.name]: resolveFieldContent(EmailField, EmailField.validationSchema),
+    [UsernameField.name]: resolveFieldContent(UsernameField, UsernameField.validationSchema),
+    [AccountTypeField.name]: resolveFieldContent(
+      AccountTypeField,
+      AccountTypeField.validationSchema,
+    ),
+    [CompanyNameField.name]: resolveFieldContent(
+      CompanyNameField,
+      CompanyNameField.validationSchema,
+    ),
+    [CountryField.name]: resolveFieldContent(CountryField, CountryField.validationSchema),
+    [StateField.name]: resolveFieldContent(StateField, StateField.validationSchema),
+    [PreferredContactField.name]: resolveFieldContent(
       PreferredContactField,
       PreferredContactField.validationSchema,
     ),
-    phone_number: resolveFieldContent(
+    [PhoneNumberField.name]: resolveFieldContent(
       PhoneNumberField,
       PhoneNumberField.validationSchemaFactory({ settings }),
     ),
-    newsletter_opt_in: resolveFieldContent(NewsletterField, NewsletterField.validationSchema),
+    [NewsletterField.name]: resolveFieldContent(
+      NewsletterField,
+      NewsletterField.validationSchema,
+    ),
   }
 }

@@ -16,26 +16,27 @@ export function payloadFactory(
   values: SimpleOnboardingFormValues,
   profile: Profile = DEFAULT_PROFILE,
 ) {
-  const account_type = AccountTypeField.normalizeValue(values.account_type)
-  const country = CountryField.normalizeValue(values.country)
+  const account_type = AccountTypeField.normalizeValue(values[AccountTypeField.name])
+  const country = CountryField.normalizeValue(values[CountryField.name])
   const preferred_contact = PreferredContactField.normalizeValue(
-    values.preferred_contact,
+    values[PreferredContactField.name],
   )
+
   const companyNamePolicy = buildConditionalFieldPolicy(
-    FIELD_POLICIES.company_name,
+    FIELD_POLICIES[CompanyNameField.name],
     {
       account_type,
       profile,
     },
   )
 
-  const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES.state, {
+  const statePolicy = buildConditionalFieldPolicy(FIELD_POLICIES[StateField.name], {
     country,
     profile,
   })
 
   const phoneNumberPolicy = buildConditionalFieldPolicy(
-    FIELD_POLICIES.phone_number,
+    FIELD_POLICIES[PhoneNumberField.name],
     {
       preferred_contact,
       country,
@@ -43,43 +44,34 @@ export function payloadFactory(
     },
   )
 
-  const payload: {
-    first_name: string
-    email: string
-    username: string
-    account_type: SimpleOnboardingFormValues['account_type']
-    country: string
-    preferred_contact: SimpleOnboardingFormValues['preferred_contact']
-    newsletter_opt_in: boolean
-    company_name?: string
-    state?: string
-    phone_number?: string
-  } = {
-    first_name: FirstNameField.normalizeValue(values.first_name),
-    email: EmailField.normalizeValue(values.email),
-    username: UsernameField.normalizeValue(values.username),
-    account_type,
-    country,
-    preferred_contact,
-    newsletter_opt_in: NewsletterField.normalizeValue(values.newsletter_opt_in),
-  }
-
-  const company_name = CompanyNameField.normalizeValue(values.company_name)
-  if (companyNamePolicy.includeInPayload && company_name) {
-    payload.company_name = company_name
-  }
-
-  const state = StateField.normalizeValue(values.state)
-  if (statePolicy.includeInPayload && state) {
-    payload.state = state
-  }
-
-  const phone_number = PhoneNumberField.normalizeValue(values.phone_number)
-  if (phoneNumberPolicy.includeInPayload && phone_number) {
-    payload.phone_number = phone_number
-  }
-
-  return payload
+  // The `satisfies` constraint keeps this factory exhaustive against the
+  // canonical field key set: add a field to SimpleOnboardingFormValues and
+  // this object fails to compile until the field is mapped here.
+  return {
+    [FirstNameField.name]: FirstNameField.normalizeValue(values[FirstNameField.name]),
+    [EmailField.name]: EmailField.normalizeValue(values[EmailField.name]),
+    [UsernameField.name]: UsernameField.normalizeValue(values[UsernameField.name]),
+    [AccountTypeField.name]: account_type,
+    [CountryField.name]: country,
+    [PreferredContactField.name]: preferred_contact,
+    [NewsletterField.name]: NewsletterField.normalizeValue(
+      values[NewsletterField.name],
+    ),
+    // Conditional fields — included only when the policy's payloadCondition is met.
+    ...(companyNamePolicy.includeInPayload && {
+      [CompanyNameField.name]: CompanyNameField.normalizeValue(
+        values[CompanyNameField.name],
+      ),
+    }),
+    ...(statePolicy.includeInPayload && {
+      [StateField.name]: StateField.normalizeValue(values[StateField.name]),
+    }),
+    ...(phoneNumberPolicy.includeInPayload && {
+      [PhoneNumberField.name]: PhoneNumberField.normalizeValue(
+        values[PhoneNumberField.name],
+      ),
+    }),
+  } satisfies SimpleOnboardingFormValues
 }
 
 export type SimpleOnboardingPayload = ReturnType<typeof payloadFactory>
