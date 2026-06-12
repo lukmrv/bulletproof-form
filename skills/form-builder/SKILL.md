@@ -357,6 +357,18 @@ bounds) extend this base.
   when composite fields or layout justify it, but the wrapper obeys the same rules: dumb,
   no logic, passes values through.
 
+**Field layer (optional side-note in the doc; to be expanded).** When inputs don't conform
+to the uniform prop shape or the renderer gets noisy, introduce form-local field components
+(`fields/<field>.tsx`) — the component counterpart of the field contract, typed against its
+exact contract. `Controller`s stay on the form level: the renderer binds and hands the field
+component the controlled wiring; the field owns adapting a non-conforming input to that
+wiring and composing label/error/helper text. Boundary rule: it may translate prop and event
+shapes, **never value semantics** — value transformation belongs on the contract's
+`normalizeValue`. Structurally optional; expected in practice past trivial form size. When
+a form needs fields, contract and component sit together in a single folder
+(`field-contracts/` becomes `fields/`, sibling files) — just a directory rename; nothing
+architectural moves.
+
 ## 8. Transport
 
 A form-specific API client sends the normalized payload and returns a response — it knows

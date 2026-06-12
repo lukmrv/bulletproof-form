@@ -170,6 +170,11 @@ Add a field to FormValues and TypeScript reports a compile error in each of thos
 The payload factory is the deliberate exception: its keys follow the API's naming, not the form's, so it cannot be constrained by keyof FormValues. Its output is constrained by the backend request type via satisfies, and its input coverage by the typed FormValues argument.
 
 
+Side note - the field layer (optional; to be expanded)
+
+When inputs don't conform to the uniform prop shape, or the input-adjacent markup (label, error, helper text) makes the renderer noisy, those concerns move into form-local field components - fields/<field>.tsx, the component counterpart of the field contract, typed against its exact contract. Controllers stay on the form level: the renderer binds and hands the field component the controlled wiring; the field owns adapting a non-conforming input to that wiring and composing the input-adjacent presentation. It may translate prop and event shapes, never value semantics - normalization stays on the contract, and all dumb-component rules still apply. Structurally optional; expected in practice past trivial form size. When a form needs fields, introducing them changes the structure a bit - the field and its contract sit together in a single folder (field-contracts/ becomes fields/, contract and component as sibling files) - but that is just a matter of renaming directories; nothing architectural moves.
+
+
 
 Static vs. dynamic field sets
 
