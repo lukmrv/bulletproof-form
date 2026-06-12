@@ -157,32 +157,46 @@ only for conditional fields — fields whose presence depends on other field val
 context. Unconditional fields have no policy entry.
 
 Two baseline predicates: `visible` (does the field render) and `payloadCondition` (is it
-included in the submit payload). **`payloadCondition` defaults to `visible`** — write the
-condition once; declare an explicit `payloadCondition` only when render participation and
-payload participation genuinely diverge. **`required` is not a policy predicate by
+included in the submit payload). **Both are declared explicitly** — in the common case they
+are the same condition, and that repetition is deliberate: the policy map stays plain, fully
+explicit data with no declaration-time helper. **`required` is not a policy predicate by
 default** — only a field that is visible but contextually required adds an explicit
 `required` predicate as a deliberate override. Hidden-field value retention is also declared
 here: an optional `retainValueWhenHidden` flag (the baseline default is unmount + unregister,
 value dropped).
 
 ```ts
-export const FIELD_POLICIES = {
-  [CompanyNameField.name]: definePolicy({
+type FieldPolicy<TDeps extends readonly (keyof FormValues)[]> = {
+  deps: TDeps
+  visible: (values: Pick<FormValues, TDeps[number]>, context: PolicyContext) => boolean
+  payloadCondition: (values: Pick<FormValues, TDeps[number]>, context: PolicyContext) => boolean
+}
+
+export const FIELD_POLICIES: {
+  [CompanyNameField.name]: FieldPolicy<[typeof AccountTypeField.name]>
+  [PhoneNumberField.name]: FieldPolicy<[typeof PreferredContactField.name, typeof CountryField.name]>
+} = {
+  [CompanyNameField.name]: {
     deps: [AccountTypeField.name],
     visible: (values) => values[AccountTypeField.name] === 'company',
-    // payloadCondition omitted — defaults to visible
-  }),
-  [PhoneNumberField.name]: definePolicy({
+    payloadCondition: (values) => values[AccountTypeField.name] === 'company',
+  },
+  [PhoneNumberField.name]: {
     deps: [PreferredContactField.name, CountryField.name],
     visible: (values) =>
       values[PreferredContactField.name] === 'sms' && values[CountryField.name] === 'US',
-  }),
+    payloadCondition: (values) =>
+      values[PreferredContactField.name] === 'sms' && values[CountryField.name] === 'US',
+  },
 }
 ```
 
-Predicates receive the form values (and the resolved external context when a policy needs
-it). `deps` declares which form values a policy reads — it documents the dependency and
-drives the renderer's subscription.
+Predicates receive the form values their `deps` declare (and the resolved external context
+when a policy needs it). `deps` documents the dependency and drives the renderer's
+subscription. The per-entry tuple annotation is load-bearing: it links `deps` to the values
+a predicate may read, so the compiler rejects a predicate reading an undeclared field and a
+`deps` array that drifts from its annotation. Never loosen the map's type to a uniform
+`Record` — that dissolves the link.
 
 Every consumer evaluates a policy through a single entry point:
 `evaluatePolicy(policy, values, context) → { visible, includeInPayload }`. No call site
@@ -402,10 +416,11 @@ this raises in the defaults/validation/content factories → map it in the paylo
 (the backend request type flags it if required) → bind in renderer. Input component only if
 a new input type is needed.
 
-**Add a conditional field:** the above, plus a policy entry via `definePolicy` (`deps`,
-`visible`, `payloadCondition` only if it diverges); keep required-ness on the contract
-schema; gate the full contract schema on `policy.visible` in `superRefine`; gate payload
-inclusion on `includeInPayload`; render behind the policy subscribed to `policy.deps`.
+**Add a conditional field:** the above, plus a typed policy entry (`deps`, `visible`,
+`payloadCondition`, with the per-entry `FieldPolicy<[…]>` annotation); keep required-ness on
+the contract schema; gate the full contract schema on `policy.visible` in `superRefine`;
+gate payload inclusion on `includeInPayload`; render behind the policy subscribed to
+`policy.deps`.
 
 **Change a rule:** find its single owner (contract = intrinsic; policy = participation;
 superRefine = cross-field; payload factory = API shape) and change it there only. If you are
@@ -416,9 +431,10 @@ about to change two layers for one rule, the rule is in the wrong place.
 - [ ] Field keys come from `Field.name`; no re-typed string literals (API-named payload keys
       excepted — the backend request type owns those).
 - [ ] Required-ness lives on contract schemas; policies own participation only
-      (`visible`, `payloadCondition` defaulting to `visible`; `required` predicate only as
-      a deliberate override).
-- [ ] Policies declare `deps`; every consumer goes through `evaluatePolicy`; no call site
+      (`visible` and `payloadCondition`, both declared explicitly; `required` predicate
+      only as a deliberate override).
+- [ ] Policies declare `deps` with per-entry `FieldPolicy<[…]>` annotations linking `deps`
+      to predicate inputs; every consumer goes through `evaluatePolicy`; no call site
       assembles a values/context slice by hand.
 - [ ] Conditional validation gated on `policy.visible`, running the full contract schema.
 - [ ] Payload inclusion gated purely by `payloadCondition`; payload output `satisfies` the

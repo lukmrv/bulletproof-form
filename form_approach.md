@@ -184,7 +184,7 @@ Policies - conditional field participation rules
 Policies exist for one purpose: declaring the conditions under which a field participates in the form. They apply only to conditional fields - fields whose presence depends on other field values or external context.
 Unconditional fields have no policy entry, they are always present and their contracts fully describe them.
 
-A policy has two baseline predicates: visible (whether the field renders) and payloadCondition (whether it is included in the submit payload). payloadCondition defaults to visible - in the common case where a hidden field is simply omitted from the payload, the condition is written once. An explicit payloadCondition is declared only when render participation and payload participation genuinely diverge.
+A policy has two baseline predicates: visible (whether the field renders) and payloadCondition (whether it is included in the submit payload). Both are declared explicitly. In the common case they are the same condition - that repetition is accepted deliberately, in exchange for a policy map that is plain, fully explicit data with no declaration-time helper between the author and the shape.
 There could be other conditional aspects of a field, like required, so those could be added into policies if such need arises.
 
 Hidden-field value retention is also declared here: an optional retainValueWhenHidden flag controls whether a hidden field keeps its value in form state (the default is unmount + unregister - the value is dropped). Whether a specific field should retain its value is a product decision, made per field; the framework only guarantees there is exactly one declared place to make it.
@@ -195,24 +195,37 @@ Note: required-ness is not in the policy by default - it is declared on the fiel
 
 
 
-export const FIELD_POLICIES = {
-  [CompanyName.name]: definePolicy({
+type FieldPolicy<TDeps extends readonly (keyof FormValues)[]> = {
+  deps: TDeps
+  visible: (values: Pick<FormValues, TDeps[number]>, context: PolicyContext) => boolean
+  payloadCondition: (values: Pick<FormValues, TDeps[number]>, context: PolicyContext) => boolean
+}
+
+export const FIELD_POLICIES: {
+  [CompanyName.name]: FieldPolicy<[typeof AccountType.name]>
+  [State.name]: FieldPolicy<[typeof Country.name]>
+  [PhoneNumber.name]: FieldPolicy<[typeof PreferredContact.name, typeof Country.name]>
+} = {
+  [CompanyName.name]: {
     deps: [AccountType.name],
     visible: (values) => values[AccountType.name] === 'company',
-    // payloadCondition omitted - defaults to visible
-  }),
-  [State.name]: definePolicy({
+    payloadCondition: (values) => values[AccountType.name] === 'company',
+  },
+  [State.name]: {
     deps: [Country.name],
     visible: (values) => values[Country.name] === 'US',
-  }),
-  [PhoneNumber.name]: definePolicy({
+    payloadCondition: (values) => values[Country.name] === 'US',
+  },
+  [PhoneNumber.name]: {
     deps: [PreferredContact.name, Country.name],
     visible: (values) => values[PreferredContact.name] === 'sms' && values[Country.name] === 'US',
-  }),
+    payloadCondition: (values) => values[PreferredContact.name] === 'sms' && values[Country.name] === 'US',
+  },
 }
 
 
-Predicates receive the full form values (and the resolved external context, when a policy needs it) and read what they need. deps declares which form values a policy depends on - it documents the dependency and drives the renderer's subscription.
+Predicates receive the form values their deps declare (and the resolved external context, when a policy needs it). deps declares which form values a policy depends on - it documents the dependency and drives the renderer's subscription.
+The per-entry tuple annotation is load-bearing: it is what links deps to the values a predicate may read, so the compiler rejects a predicate reading an undeclared field and a deps array that drifts from its annotation. Do not loosen the map's type to a uniform Record - that dissolves the link.
 
 Every consumer evaluates a policy through a single entry point: evaluatePolicy(policy, values, context). The React layer uses a thin shared adapter, usePolicy(policy, control, context), which subscribes (useWatch) to exactly policy.deps and calls evaluatePolicy. No call site assembles a values or context slice by hand - which is what makes the guarantee real: the renderer, the validation gate, and the payload mapping cannot diverge on what a policy sees, because none of them decides what a policy sees.
 

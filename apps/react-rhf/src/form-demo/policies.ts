@@ -12,14 +12,19 @@ import type { Profile } from './default-context'
   under which a field takes part in the form at all:
   - visible: should the field render in the UI
   - payloadCondition: should the field be included in the submit payload
-    (defaults to `visible`; declared explicitly only when render participation
-    and payload participation genuinely diverge)
+  Both predicates are declared explicitly; when they repeat the same condition
+  that repetition is deliberate — the policy map stays plain, fully explicit
+  data with no declaration-time helper.
   Unconditional fields have no policy entry; their contracts fully describe them.
 
   `deps` declares which form values a policy reads. It documents the dependency
   and drives the renderer's subscription — no call site assembles a values slice
   by hand, so the renderer, the validation gate, and the payload mapping cannot
-  diverge on what a policy sees.
+  diverge on what a policy sees. The per-entry FieldPolicy<[…]> annotation on
+  FIELD_POLICIES is load-bearing: it links each deps tuple to the values its
+  predicates may read, so the compiler rejects a predicate reading an undeclared
+  field and a deps array that drifts from its annotation. Never loosen the map's
+  type to a uniform Record.
 
   Every consumer evaluates a policy through the single entry point
   `evaluatePolicy(policy, values, context)`.
@@ -46,12 +51,6 @@ type FieldCondition<TDeps extends readonly PolicyDep[]> = (
   context: PolicyContext,
 ) => boolean
 
-interface ConditionalFieldRule<TDeps extends readonly PolicyDep[]> {
-  deps: TDeps
-  visible: FieldCondition<TDeps>
-  payloadCondition?: FieldCondition<TDeps>
-}
-
 export interface FieldPolicy<TDeps extends readonly PolicyDep[]> {
   deps: TDeps
   visible: FieldCondition<TDeps>
@@ -61,16 +60,6 @@ export interface FieldPolicy<TDeps extends readonly PolicyDep[]> {
 export interface EvaluatedFieldPolicy {
   visible: boolean
   includeInPayload: boolean
-}
-
-export function definePolicy<const TDeps extends readonly PolicyDep[]>(
-  rule: ConditionalFieldRule<TDeps>,
-): FieldPolicy<TDeps> {
-  return {
-    deps: rule.deps,
-    visible: rule.visible,
-    payloadCondition: rule.payloadCondition ?? rule.visible,
-  }
 }
 
 export function evaluatePolicy<TDeps extends readonly PolicyDep[]>(
@@ -84,19 +73,28 @@ export function evaluatePolicy<TDeps extends readonly PolicyDep[]>(
   }
 }
 
-export const FIELD_POLICIES = {
-  [CompanyNameField.name]: definePolicy({
+export const FIELD_POLICIES: {
+  [CompanyNameField.name]: FieldPolicy<[typeof AccountTypeField.name]>
+  [StateField.name]: FieldPolicy<[typeof CountryField.name]>
+  [PhoneNumberField.name]: FieldPolicy<
+    [typeof PreferredContactField.name, typeof CountryField.name]
+  >
+} = {
+  [CompanyNameField.name]: {
     deps: [AccountTypeField.name],
     visible: (values) => values[AccountTypeField.name] === 'company',
-    // payloadCondition omitted — defaults to visible
-  }),
-  [StateField.name]: definePolicy({
+    payloadCondition: (values) => values[AccountTypeField.name] === 'company',
+  },
+  [StateField.name]: {
     deps: [CountryField.name],
     visible: (values) => values[CountryField.name] === 'US',
-  }),
-  [PhoneNumberField.name]: definePolicy({
+    payloadCondition: (values) => values[CountryField.name] === 'US',
+  },
+  [PhoneNumberField.name]: {
     deps: [PreferredContactField.name, CountryField.name],
     visible: (values) =>
       values[PreferredContactField.name] === 'sms' && values[CountryField.name] === 'US',
-  }),
+    payloadCondition: (values) =>
+      values[PreferredContactField.name] === 'sms' && values[CountryField.name] === 'US',
+  },
 }

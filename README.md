@@ -19,10 +19,10 @@ Implemented:
 - Async bootstrap hydration gated by the orchestrator: the form renders only once context is
   resolved, seeds `useForm` a single time from `defaultValuesFactory(formContext)`, and has no
   re-seed (`reset`) path.
-- Form policies declared via `definePolicy` (`deps`, `visible`, `payloadCondition` defaulting to
-  `visible`) and consumed through the single `evaluatePolicy` entry point by conditional
-  rendering, validation gating, and payload inclusion. The renderer subscribes to exactly
-  `policy.deps` — no call site assembles a values slice by hand.
+- Form policies declared as a plain, per-entry-typed map (`deps`, `visible`, `payloadCondition` —
+  both predicates explicit) and consumed through the single `evaluatePolicy` entry point by
+  conditional rendering, validation gating, and payload inclusion. The renderer subscribes to
+  exactly `policy.deps` — no call site assembles a values slice by hand.
 - Validation composed per contract; conditional fields run their full contract schema in
   `superRefine`, gated on `policy.visible`.
 - Submit boundary built from `validationFactory -> payloadFactory` (mock API client in baseline).
@@ -53,10 +53,11 @@ Implemented:
 3. Form layer owns composition and cross-field behavior.
 
 - `defaultValuesFactory`, `validationFactory`, renderer-local form setup, conditional rendering.
-- `policies.ts` owns conditional field participation: `visible` and `payloadCondition`
-  (defaulting to `visible`), declared with `definePolicy` alongside the policy's `deps`. A field
-  that is visible but only contextually required adds an explicit `required` predicate as a
-  deliberate override — it is not part of the default policy shape.
+- `policies.ts` owns conditional field participation: `visible` and `payloadCondition`, both
+  declared explicitly alongside the policy's `deps`, with a per-entry `FieldPolicy<[…]>`
+  annotation linking `deps` to what each predicate may read. A field that is visible but only
+  contextually required adds an explicit `required` predicate as a deliberate override — it is
+  not part of the default policy shape.
 - All consumers evaluate policies through `evaluatePolicy(policy, values, context)`; the
   renderer's conditional subscriptions are driven by `policy.deps`.
 - Conditional field validation is gated on `policy.visible` in `superRefine`, which runs the
